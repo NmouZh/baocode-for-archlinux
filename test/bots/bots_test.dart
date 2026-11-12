@@ -501,6 +501,32 @@ void main() {
       expect(bots.unread(bot), 0);
     });
 
+    test('when its chat with the user went on: not when a group did', () async {
+      final bot = bots.bots.single;
+      final session = bots.threadFor(bot).session;
+      Future<void> told(String text) async {
+        final had = session.itemCount;
+        session.send(ComposerMessage(text: text));
+        for (var i = 0; i < 300 && session.itemCount == had; i++) {
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }
+        session.stop();
+        for (var i = 0; i < 300 && session.isStreaming; i++) {
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }
+      }
+
+      expect(bots.chattedAt(bot), isNull);
+      await told(
+        botEventMessage('[group g1] The group chat "Team": you.\nNew in it.'),
+      );
+      expect(bots.chattedAt(bot), isNull);
+      final before = DateTime.now();
+      await told('在吗');
+      expect(bots.chattedAt(bot), isNotNull);
+      expect(bots.chattedAt(bot)!.isBefore(before), isFalse);
+    });
+
     test('its agent is told who it is, with all an agent has', () async {
       final bot = bots.bots.single;
       bots.threadFor(bot).session.send(const ComposerMessage(text: '在吗'));
@@ -1623,27 +1649,40 @@ void main() {
       expect(await offered(bot.folder), contains('bot_recent_events'));
     });
 
-    test('woken by the app, not writing until it says a word', () async {
+    test('at work in its chat, as it is: woken by the app too; not at a '
+        'group\'s', () async {
       final bot = toldOfAll();
       final session = bots.threadFor(bot).session;
+      Future<void> until(bool Function() done) async {
+        for (var i = 0; i < 300 && !done(); i++) {
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }
+      }
+
+      expect(bots.atWork(bot), isNull);
       bots.later(bot, const Duration(minutes: 1), 'Ask how it went');
       now = now.add(const Duration(minutes: 2));
       bots.deliver();
-      for (var i = 0; i < 300 && !session.isStreaming; i++) {
-        await Future<void>.delayed(const Duration(milliseconds: 10));
-      }
+      await until(() => session.isStreaming);
       expect(bots.threadOf(bot)!.status, ThreadStatus.running);
-      expect(bots.typing(bot), isFalse);
-      session.stop();
-      for (var i = 0; i < 300 && session.isStreaming; i++) {
-        await Future<void>.delayed(const Duration(milliseconds: 10));
-      }
-      // The user's words: writing back.
-      session.send(const ComposerMessage(text: 'hi'));
-      for (var i = 0; i < 300 && !session.isStreaming; i++) {
-        await Future<void>.delayed(const Duration(milliseconds: 10));
-      }
       expect(bots.typing(bot), isTrue);
+      final work = bots.atWork(bot)!;
+      expect(work.group, isNull);
+      expect(work.since, isNotNull);
+      session.stop();
+      await until(() => !session.isStreaming);
+      expect(bots.typing(bot), isFalse);
+      // A group's news: at work there, not in its chat.
+      session.send(
+        ComposerMessage(
+          text: botEventMessage(
+            '[group g1] The group chat "Team": you.\nNew in it.',
+          ),
+        ),
+      );
+      await until(() => session.isStreaming);
+      expect(bots.typing(bot), isFalse);
+      expect(bots.atWork(bot)!.group, 'g1');
       session.stop();
     });
   });

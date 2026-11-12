@@ -5,6 +5,7 @@ import 'package:baocode/bots/bot_folders.dart';
 import 'package:baocode/bots/bot_groups.dart';
 import 'package:baocode/bots/bot_world.dart';
 import 'package:baocode/bots/bots.dart';
+import 'package:baocode/chat/chat_session.dart';
 import 'package:baocode/kernel/agent_kernel.dart';
 import 'package:baocode/kernel/claude_code/claude_code_kernel.dart';
 import 'package:baocode/kernel/claude_code/claude_sdk_tools.dart';
@@ -276,6 +277,21 @@ void main() {
     expect(reminder, contains('WORLD.md changed'));
   });
 
+  test('reminded who is at work, and where', () async {
+    final session = bots.threadFor(mia).session;
+    session.send(const ComposerMessage(text: '在吗'));
+    for (var i = 0; i < 300 && !session.isStreaming; i++) {
+      await wait(10);
+    }
+    world.note('- Leo read "江湖" and kept quiet.');
+    await wait(30);
+    expect(
+      worldTold.last.reminder,
+      contains('At work now:\n- Mia, in private with 用户 since '),
+    );
+    session.stop();
+  });
+
   test('woken in private: if it may write first, at any hour', () async {
     now = DateTime(2026, 11, 13, 23, 30);
     final refused = await wake('Leo', BotWorld.inPrivate);
@@ -310,6 +326,38 @@ void main() {
     });
     expect(held.error, isTrue);
     expect(held.text, contains('turned off Leo writing to them first'));
+  });
+
+  test('a picture from a file sent with bot_send: to a group with the '
+      'message; to the group it answers, with its reply', () async {
+    final dir = Directory.systemTemp.createTempSync('world-pictures');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final file = File('${dir.path}/a.png')
+      ..writeAsBytesSync([137, 80, 78, 71, 13, 10, 26, 10, 1, 2]);
+    final group = groups.save(name: '江湖', members: [mia.id, leo.id]);
+    final sent = await call(mia.folder, 'bot_send', {
+      'to': '江湖',
+      'images': [file.path],
+    });
+    expect(sent.error, isFalse);
+    expect(groups.messages(group.id).last.images, ['1-1.png']);
+    expect(
+      (await call(mia.folder, 'bot_send', {
+        'to': '江湖',
+        'images': ['${dir.path}/none.png'],
+      })).text,
+      contains('No file'),
+    );
+    groups.send(group.id, text: '@Mia 图呢');
+    await wait(40);
+    expect(groups.answering(mia.id), group.id);
+    final held = await call(mia.folder, 'bot_send', {
+      'to': group.id,
+      'images': [file.path],
+    });
+    expect(held.text, contains('go with your reply'));
+    groups.turnEnded(group.id, mia.id, '<bot_say>这张</bot_say>');
+    expect(groups.messages(group.id).last.images, ['3-1.png']);
   });
 
   test(
