@@ -5,6 +5,8 @@ import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 
 import '../channel/channel_setup.dart' show ChannelSetup;
+import 'arch_release.dart';
+import 'update_github.dart';
 import 'update_io.dart';
 import 'update_manifest.dart';
 import 'update_service.dart';
@@ -18,11 +20,13 @@ PlatformUpdates? platformUpdates({required String updatesDirectory}) {
   final environment = Platform.environment;
   final override = environment[manifestUrlVariable]?.trim() ?? '';
   if (!kReleaseMode && override.isEmpty) return null;
-  final manifestUrl = Uri.tryParse(
-    override.isEmpty ? defaultManifestUrl : override,
+  final manifestUrl = updateManifestUrl(
+    isLinux: Platform.isLinux,
+    override: override,
   );
   if (manifestUrl == null) return null;
   final executable = Platform.resolvedExecutable;
+  const processes = IoUpdateProcesses();
   final UpdateInstaller installer;
   final String platform;
   if (Platform.isMacOS) {
@@ -34,6 +38,7 @@ PlatformUpdates? platformUpdates({required String updatesDirectory}) {
       executable: executable,
       pid: pid,
       updatesDirectory: updatesDirectory,
+      processes: processes,
     );
   } else if (Platform.isWindows) {
     platform = windowsUpdatePlatform(arm64: Abi.current() == Abi.windowsArm64);
@@ -42,6 +47,7 @@ PlatformUpdates? platformUpdates({required String updatesDirectory}) {
       pid: pid,
       environment: environment,
       updatesDirectory: updatesDirectory,
+      processes: processes,
     );
   } else if (Platform.isLinux) {
     platform = linuxUpdatePlatform(arm64: Abi.current() == Abi.linuxArm64);
@@ -49,6 +55,7 @@ PlatformUpdates? platformUpdates({required String updatesDirectory}) {
       executable: executable,
       pid: pid,
       updatesDirectory: updatesDirectory,
+      processes: processes,
     );
   } else {
     return null;
@@ -57,16 +64,55 @@ PlatformUpdates? platformUpdates({required String updatesDirectory}) {
     platform,
     channel: ChannelSetup.channelBuild,
   );
+  final userAgent = 'BaoCode/$currentAppVersion ($edition)';
   return PlatformUpdates(
     platform: edition,
     manifestUrl: manifestUrl,
-    backend: IoUpdateBackend(
-      directory: updatesDirectory,
-      userAgent: 'BaoCode/$currentAppVersion ($edition)',
+    backend: updateBackend(
+      isLinux: Platform.isLinux,
+      override: override,
+      updatesDirectory: updatesDirectory,
+      executable: executable,
+      processes: processes,
+      userAgent: userAgent,
     ),
     installer: installer,
   );
 }
+
+/// Where this build looks for updates: the upstream manifest (overridden by
+/// [manifestUrlVariable]) elsewhere; on Linux, the fork's GitHub releases,
+/// unless the override names a manifest.
+@visibleForTesting
+Uri? updateManifestUrl({required bool isLinux, required String override}) {
+  final trimmed = override.trim();
+  final chosen = isLinux
+      ? updateSourceDecision(isLinux: true, envUpdateUrl: trimmed)
+      : trimmed.isEmpty
+      ? defaultManifestUrl
+      : trimmed;
+  return Uri.tryParse(chosen);
+}
+
+/// What finds and downloads updates: the fork's GitHub releases with the
+/// package pacman installed, on Linux; the manifest backend elsewhere, or
+/// where [manifestUrlVariable] overrides the source.
+@visibleForTesting
+UpdateBackend updateBackend({
+  required bool isLinux,
+  required String override,
+  required String updatesDirectory,
+  required String executable,
+  required UpdateProcesses processes,
+  required String userAgent,
+}) => isLinux && override.trim().isEmpty
+    ? GitHubUpdateBackend(
+        directory: updatesDirectory,
+        packageName: () async =>
+            (await pacmanOwnership(processes, executable)).packageName,
+        userAgent: userAgent,
+      )
+    : IoUpdateBackend(directory: updatesDirectory, userAgent: userAgent);
 
 /// [platform]'s download for the build's edition: the channel build's
 /// (`windows-x64-channel`…) for it, which a release has beside the standard
@@ -171,6 +217,9 @@ class WindowsUpdateInstaller implements UpdateInstaller {
   @override
   String get log => p.join(updatesDirectory, 'install.log');
 
+  @override
+  Uri get downloadPage => ManualUpdateRequired.defaultDownloadPage;
+
   /// Whether Setup installed the app per machine: its uninstall entry is
   /// in HKLM, not HKCU. With both there (two installs), or neither, whether
   /// it is under Program Files.
@@ -200,7 +249,7 @@ class WindowsUpdateInstaller implements UpdateInstaller {
     // build folder (or a copy), which Setup would install beside, not over.
     final uninstaller = File(p.join(p.dirname(executable), 'unins000.exe'));
     if (!await uninstaller.exists()) {
-      throw const ManualUpdateRequired(
+      throw ManualUpdateRequired(
         'BaoCode was not installed by its installer',
       );
     }
@@ -289,6 +338,9 @@ class MacUpdateInstaller implements UpdateInstaller {
   @override
   String get log => p.join(updatesDirectory, 'install.log');
 
+  @override
+  Uri get downloadPage => ManualUpdateRequired.defaultDownloadPage;
+
   /// The `.app` running.
   String get appBundle => p.dirname(p.dirname(p.dirname(executable)));
 
@@ -296,10 +348,10 @@ class MacUpdateInstaller implements UpdateInstaller {
   Future<PreparedUpdate> prepare(String file, UpdateRelease release) async {
     final app = appBundle;
     if (p.extension(app) != '.app') {
-      throw const ManualUpdateRequired('BaoCode is not in an app bundle');
+      throw ManualUpdateRequired('BaoCode is not in an app bundle');
     }
     if (app.contains('/AppTranslocation/')) {
-      throw const ManualUpdateRequired(
+      throw ManualUpdateRequired(
         'macOS runs BaoCode from a temporary place: move it to Applications',
       );
     }
@@ -465,21 +517,54 @@ rm -f "\$0"
 
 // --- Linux -------------------------------------------------------------------
 
-/// Where the package (tool/package_linux_deb.sh) installs the app.
+/// Where the packages install the app (packaging/).
 const linuxInstallDirectory = '/opt/baocode';
+
+/// Where Linux users download a package by hand: the fork's releases.
+final linuxDownloadPage = Uri.parse(
+  'https://github.com/NmouZh/baocode-for-archlinux/releases',
+);
 
 /// The Linux build an app updates to: the one for the processor.
 @visibleForTesting
 String linuxUpdatePlatform({required bool arm64}) =>
     arm64 ? 'linux-arm64' : 'linux-x64';
 
-/// Installs the new version's package over this one (`dpkg -i`, as root:
+/// pacman's answer about [executable]: the package that owns it (`baocode`
+/// or `baocode-bin`), or null with pacman's complaint in [error].
+typedef PacmanOwnership = ({String? packageName, String? error});
+
+/// Asks pacman which package installed [executable]. A missing pacman, a
+/// failed query, or an answer that is neither package means the app was not
+/// installed by one.
+@visibleForTesting
+Future<PacmanOwnership> pacmanOwnership(
+  UpdateProcesses processes,
+  String executable,
+) async {
+  try {
+    final result = await processes.run('pacman', ['-Qoq', executable]);
+    final packageName = result.exitCode == 0
+        ? parsePacmanOwnership('${result.stdout}', executable)
+        : null;
+    if (packageName != null) return (packageName: packageName, error: null);
+    final stderr = '${result.stderr}'.trim();
+    return (
+      packageName: null,
+      error: stderr.isEmpty ? 'pacman exited ${result.exitCode}' : stderr,
+    );
+  } on ProcessException catch (error) {
+    return (packageName: null, error: error.message);
+  }
+}
+
+/// Installs the new version's package over this one (`pacman -U`, as root:
 /// pkexec asks for the password while the app is still in front), then,
 /// once the app has quit, opens it again.
 ///
-/// Only an app the package installed updates itself: one from the tarball
-/// or a build folder, or with no pkexec to ask with, sends the user to the
-/// download page instead.
+/// Only an app a pacman package installed updates itself: one from the
+/// tarball or the fork's releases, pacman failing to find the package, or
+/// no pkexec to ask with sends the user to the fork's releases instead.
 class LinuxUpdateInstaller implements UpdateInstaller {
   LinuxUpdateInstaller({
     required this.executable,
@@ -489,7 +574,7 @@ class LinuxUpdateInstaller implements UpdateInstaller {
     this.pkexec = '/usr/bin/pkexec',
   });
 
-  /// `/opt/baocode/baocode`, where the package put it.
+  /// `/opt/baocode/baocode`, where the packages put it.
   final String executable;
   final int pid;
 
@@ -505,14 +590,29 @@ class LinuxUpdateInstaller implements UpdateInstaller {
   String get log => p.join(updatesDirectory, 'install.log');
 
   @override
+  Uri get downloadPage => linuxDownloadPage;
+
+  @override
   Future<PreparedUpdate> prepare(String file, UpdateRelease release) async {
-    if (p.dirname(executable) != linuxInstallDirectory || !await _packaged()) {
-      throw const ManualUpdateRequired(
-        'BaoCode was not installed by its package',
+    final owner = await pacmanOwnership(processes, executable);
+    final pkgname = owner.packageName;
+    if (pkgname == null) {
+      throw ManualUpdateRequired(
+        'BaoCode was not installed by pacman (${owner.error})',
+        downloadPage: linuxDownloadPage,
+      );
+    }
+    if (!_isPackageOf(p.basename(file), pkgname)) {
+      throw ManualUpdateRequired(
+        'The update is not the $pkgname package',
+        downloadPage: linuxDownloadPage,
       );
     }
     if (!await File(pkexec).exists()) {
-      throw const ManualUpdateRequired('No pkexec to install the package with');
+      throw ManualUpdateRequired(
+        'No pkexec to install the package with',
+        downloadPage: linuxDownloadPage,
+      );
     }
     final script = File(p.join(p.dirname(file), 'install.sh'));
     final text = linuxUpdateScript(
@@ -527,27 +627,29 @@ class LinuxUpdateInstaller implements UpdateInstaller {
       await processes.startDetached('/bin/bash', [script.path]);
     });
   }
-
-  /// Whether dpkg has the package installed.
-  Future<bool> _packaged() async {
-    try {
-      final result = await processes.run('dpkg-query', [
-        '-W',
-        r'-f=${Status}',
-        'baocode',
-      ]);
-      return result.exitCode == 0 &&
-          '${result.stdout}'.contains('install ok installed');
-    } on ProcessException {
-      return false;
-    }
-  }
 }
 
-/// The script that installs [package] with dpkg as root (through
+/// Whether [fileName] is a package built from [pkgname] (rather than the
+/// other of the two, which pacman reports as conflicting): Arch names them
+/// `<pkgname>-<pkgver>-<pkgrel>-<arch>.pkg.tar.zst`, and a version starts
+/// with a digit, which keeps `baocode-bin-` from passing as `baocode-`.
+bool _isPackageOf(String fileName, String pkgname) {
+  const suffix = '.pkg.tar.zst';
+  final prefix = '$pkgname-';
+  if (!fileName.startsWith(prefix) || !fileName.endsWith(suffix)) {
+    return false;
+  }
+  final remainder = fileName.substring(
+    prefix.length,
+    fileName.length - suffix.length,
+  );
+  return RegExp(r'^\d').hasMatch(remainder);
+}
+
+/// The script that installs [package] with pacman as root (through
 /// [pkexec]; the old version kept if that is turned down or fails), waits
 /// (two minutes at most) for the app, process [pid], to quit, and opens
-/// [executable]; written to [log]. dpkg puts the new files in place of
+/// [executable]; written to [log]. pacman puts the new files in place of
 /// those the running app holds open, which it keeps until it quits.
 String linuxUpdateScript({
   required int pid,
@@ -555,8 +657,10 @@ String linuxUpdateScript({
   required String executable,
   required String pkexec,
   required String log,
-}) =>
-    '''
+}) {
+  final command = pacmanInstallCommand(package);
+  final install = [pkexec, ...command.skip(1)].map(_shQuote).join(' ');
+  return '''
 #!/bin/bash
 # Installs a BaoCode update, then opens it again once the app has quit
 # (lib/update/installer_io.dart).
@@ -565,10 +669,10 @@ package=${_shQuote(package)}
 executable=${_shQuote(executable)}
 exec >>${_shQuote(log)} 2>&1
 echo "\$(date): installing \$package"
-if ${_shQuote(pkexec)} /usr/bin/dpkg -i "\$package"; then
+if $install; then
   echo "Installed"
 else
-  echo "Not installed (turned down, or dpkg failed): the old version kept"
+  echo "Not installed (turned down, or pacman failed): the old version kept"
 fi
 for _ in \$(seq 1 1200); do
   kill -0 "\$pid" 2>/dev/null || break
@@ -577,6 +681,7 @@ done
 setsid "\$executable" </dev/null >/dev/null 2>&1 &
 rm -f "\$0"
 ''';
+}
 
 /// [text] as a single-quoted shell word.
 String _shQuote(String text) => "'${text.replaceAll("'", r"'\''")}'";

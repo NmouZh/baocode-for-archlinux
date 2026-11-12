@@ -75,6 +75,9 @@ class FakeInstaller implements UpdateInstaller {
   String? log;
 
   @override
+  Uri downloadPage = ManualUpdateRequired.defaultDownloadPage;
+
+  @override
   Future<PreparedUpdate> prepare(String file, UpdateRelease release) async {
     prepared.add(file);
     if (prepareError case final error?) throw error;

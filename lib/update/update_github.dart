@@ -122,11 +122,13 @@ class GitHubUpdateBackend
     if (latest == null) {
       throw const GitHubUpdateException('No stable release found');
     }
-    final pkgname = await packageName();
-    if (pkgname == null || (pkgname != 'baocode' && pkgname != 'baocode-bin')) {
-      throw GitHubUpdateException(
-        'Updates need a pacman-installed package, not ${pkgname ?? 'none'}',
-      );
+    final owner = await packageName();
+    // Not a pacman install: offer the binary package anyway, so the install
+    // attempt reaches the installer's manual-update fallback instead of
+    // failing the check with no way to download.
+    final pkgname = owner ?? 'baocode-bin';
+    if (pkgname != 'baocode' && pkgname != 'baocode-bin') {
+      throw GitHubUpdateException('Unsupported package "$pkgname"');
     }
     final machineArch = archFromMachine(arch);
     if (machineArch == null) {

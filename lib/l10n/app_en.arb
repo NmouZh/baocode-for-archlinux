@@ -5224,7 +5224,7 @@
   "modelsAuxiliaryBuiltin": "Claude Code Haiku (this machine's setup)",
   "settingsSectionUpdates": "Updates",
   "updatesSettingsTitle": "Updates",
-  "updatesSettingsDescription": "BaoCode looks for new versions on baocode.dev.",
+  "updatesSettingsDescription": "BaoCode looks for new versions online.",
   "updateCurrentVersion": "Current Version",
   "updateLastChecked": "Last checked {time}",
   "@updateLastChecked": {
@@ -5305,8 +5305,8 @@
     }
   },
   "updateDisabled": "Updates are turned off (update.mode is \"none\").",
-  "updateUnsupported": "This build of BaoCode doesn't update itself.",
-  "updateManual": "BaoCode can't update itself here ({reason}). Download the new version from baocode.dev.",
+  "updateUnsupported": "This build of BaoCode has no updates.",
+  "updateManual": "BaoCode can't update itself here ({reason}). Download the new version from the download page.",
   "@updateManual": {
     "placeholders": {
       "reason": {
@@ -5315,7 +5315,7 @@
     }
   },
   "updateOpenDownloadPage": "Open Download Page",
-  "updateUnfinished": "BaoCode {version} wasn't installed: this is still {current}. Try again from Settings > Updates, or download it from baocode.dev.",
+  "updateUnfinished": "BaoCode {version} wasn't installed: this is still {current}. Try again from Settings > Updates, or download it from the download page.",
   "@updateUnfinished": {
     "placeholders": {
       "version": {

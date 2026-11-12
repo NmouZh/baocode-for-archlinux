@@ -6949,7 +6949,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get updatesSettingsTitle => '更新';
 
   @override
-  String get updatesSettingsDescription => 'BaoCode 会在 baocode.dev 上检查新版本。';
+  String get updatesSettingsDescription => 'BaoCode 会在线检查新版本。';
 
   @override
   String get updateCurrentVersion => '当前版本';
@@ -7022,11 +7022,11 @@ class AppLocalizationsZh extends AppLocalizations {
   String get updateDisabled => '更新已关闭（update.mode 为 \"none\"）。';
 
   @override
-  String get updateUnsupported => '此版本的 BaoCode 不支持自动更新。';
+  String get updateUnsupported => '此版本的 BaoCode 没有可用的更新源。';
 
   @override
   String updateManual(String reason) {
-    return 'BaoCode 无法在当前位置自动更新（$reason），请从 baocode.dev 下载新版本。';
+    return 'BaoCode 无法在当前位置自动更新（$reason），请从下载页下载新版本。';
   }
 
   @override
@@ -7034,7 +7034,7 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String updateUnfinished(String version, String current) {
-    return 'BaoCode $version 没有装上，当前仍是 $current。可以在“设置 → 更新”里重试，或者从 baocode.dev 下载安装。';
+    return 'BaoCode $version 没有装上，当前仍是 $current。可以在“设置 → 更新”里重试，或者从下载页下载安装。';
   }
 
   @override

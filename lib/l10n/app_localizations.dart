@@ -12006,7 +12006,7 @@ abstract class AppLocalizations {
   /// No description provided for @updatesSettingsDescription.
   ///
   /// In en, this message translates to:
-  /// **'BaoCode looks for new versions on baocode.dev.'**
+  /// **'BaoCode looks for new versions online.'**
   String get updatesSettingsDescription;
 
   /// No description provided for @updateCurrentVersion.
@@ -12120,13 +12120,13 @@ abstract class AppLocalizations {
   /// No description provided for @updateUnsupported.
   ///
   /// In en, this message translates to:
-  /// **'This build of BaoCode doesn\'t update itself.'**
+  /// **'This build of BaoCode has no updates.'**
   String get updateUnsupported;
 
   /// No description provided for @updateManual.
   ///
   /// In en, this message translates to:
-  /// **'BaoCode can\'t update itself here ({reason}). Download the new version from baocode.dev.'**
+  /// **'BaoCode can\'t update itself here ({reason}). Download the new version from the download page.'**
   String updateManual(String reason);
 
   /// No description provided for @updateOpenDownloadPage.
@@ -12138,7 +12138,7 @@ abstract class AppLocalizations {
   /// No description provided for @updateUnfinished.
   ///
   /// In en, this message translates to:
-  /// **'BaoCode {version} wasn\'t installed: this is still {current}. Try again from Settings > Updates, or download it from baocode.dev.'**
+  /// **'BaoCode {version} wasn\'t installed: this is still {current}. Try again from Settings > Updates, or download it from the download page.'**
   String updateUnfinished(String version, String current);
 
   /// No description provided for @updateShowLog.

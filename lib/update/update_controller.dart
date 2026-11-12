@@ -90,7 +90,7 @@ class UpdateController {
           primary: [
             IdeNotificationAction(
               l10n.updateOpenDownloadPage,
-              () => unawaited(openUrl(ManualUpdateRequired.downloadPage)),
+              () => unawaited(openUrl(problem.downloadPage)),
             ),
           ],
         );
@@ -185,7 +185,7 @@ class UpdateController {
       primary: [
         IdeNotificationAction(
           l10n.updateOpenDownloadPage,
-          () => unawaited(openUrl(ManualUpdateRequired.downloadPage)),
+          () => unawaited(openUrl(service.installer.downloadPage)),
         ),
         if (log != null && openFile != null)
           IdeNotificationAction(

@@ -128,7 +128,7 @@ void main() {
 
     test('where the app cannot update itself, the download page', () async {
       make(manifest: manifestOf('1.2.0'));
-      installer.prepareError = const ManualUpdateRequired('read-only');
+      installer.prepareError = ManualUpdateRequired('read-only');
       await controller.checkNow(notifications, l10n);
       notifications.clearAll();
       await controller.restart(notifications, l10n);
@@ -137,11 +137,31 @@ void main() {
       expect(quits, 0);
       expect(service.armed, isFalse);
       note.primary.single.run();
-      expect(opened, [ManualUpdateRequired.downloadPage]);
+      expect(opened, [ManualUpdateRequired.defaultDownloadPage]);
       expect(
-        '${ManualUpdateRequired.downloadPage}',
+        '${ManualUpdateRequired.defaultDownloadPage}',
         'https://baocode.dev/download',
       );
+    });
+
+    test('a non-pacman install sends the user to the fork releases', () async {
+      const reason = 'BaoCode was not installed by pacman (nothing owns it)';
+      final page = Uri.parse(
+        'https://github.com/NmouZh/baocode-for-archlinux/releases',
+      );
+      make(manifest: manifestOf('1.2.0'));
+      installer.downloadPage = page;
+      installer.prepareError = ManualUpdateRequired(
+        reason,
+        downloadPage: page,
+      );
+      await controller.checkNow(notifications, l10n);
+      notifications.clearAll();
+      await controller.restart(notifications, l10n);
+      final note = notifications.notifications.single;
+      expect(note.message, l10n.updateManual(reason));
+      note.primary.single.run();
+      expect(opened, [page]);
     });
 
     test('a download that fails its checks is told, not installed', () async {
@@ -203,7 +223,7 @@ void main() {
       expect(note.message, l10n.updateUnfinished('1.2.0', '1.0.0'));
       expect(labels(note), [l10n.updateOpenDownloadPage, l10n.updateShowLog]);
       note.primary.first.run();
-      expect(opened, [ManualUpdateRequired.downloadPage]);
+      expect(opened, [ManualUpdateRequired.defaultDownloadPage]);
       note.primary.last.run();
       expect(files, ['/updates/install.log']);
 
@@ -213,6 +233,27 @@ void main() {
       await tester.pump(Duration.zero);
       expect(notifications.notifications, hasLength(1));
       again();
+      notifications.dispose();
+      make();
+    });
+
+    testWidgets('an unfinished install opens its installer\'s download page', (
+      tester,
+    ) async {
+      final page = Uri.parse(
+        'https://github.com/NmouZh/baocode-for-archlinux/releases',
+      );
+      make(
+        mode: UpdateMode.manual,
+        store: MemoryUpdateStore()..installingVersion = '1.2.0',
+      );
+      installer.downloadPage = page;
+      service.start();
+      final stop = controller.listen(notifications, () => l10n);
+      await tester.pump(Duration.zero);
+      notifications.notifications.single.primary.first.run();
+      expect(opened, [page]);
+      stop();
       notifications.dispose();
       make();
     });

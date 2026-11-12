@@ -62,6 +62,10 @@ abstract interface class UpdateInstaller {
 
   /// Where the install writes what it did; null where it writes nothing.
   String? get log;
+
+  /// Where the user downloads the new version by hand: the platform's
+  /// download page, or on Linux the fork's releases.
+  Uri get downloadPage;
 }
 
 /// An install ready to start: [launch] starts what waits for the app to
@@ -71,12 +75,19 @@ abstract interface class PreparedUpdate {
 }
 
 /// The app cannot update itself where it is (macOS: a folder it cannot
-/// write, a translocated app; Windows: not installed by its installer):
-/// the user downloads the new version from [downloadPage].
+/// write, a translocated app; Windows: not installed by its installer;
+/// Linux: not a pacman package, or no pkexec): the user downloads the new
+/// version from [downloadPage].
 class ManualUpdateRequired implements Exception {
-  const ManualUpdateRequired(this.reason);
+  ManualUpdateRequired(this.reason, {Uri? downloadPage})
+    : downloadPage = downloadPage ?? defaultDownloadPage;
 
-  static final downloadPage = Uri.parse('https://baocode.dev/download');
+  /// The upstream download page: where macOS and Windows send the user.
+  static final defaultDownloadPage = Uri.parse('https://baocode.dev/download');
+
+  /// Where the user gets the new version by hand: Linux's fork releases,
+  /// the upstream page elsewhere.
+  final Uri downloadPage;
 
   final String reason;
 

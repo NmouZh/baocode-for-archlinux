@@ -2,7 +2,10 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
+import 'package:baocode/update/arch_release.dart' show forkReleasesUrl;
 import 'package:baocode/update/installer_io.dart';
+import 'package:baocode/update/update_github.dart';
+import 'package:baocode/update/update_io.dart';
 import 'package:baocode/update/update_manifest.dart';
 import 'package:baocode/update/update_service.dart';
 
@@ -32,12 +35,14 @@ class _FakeProcesses implements UpdateProcesses {
 ProcessResult _result(int exitCode, [String stdout = '', String stderr = '']) =>
     ProcessResult(0, exitCode, stdout, stderr);
 
-UpdateRelease _release() {
-  final manifest = UpdateManifest.parse(manifestOf('1.2.0+12'));
+UpdateRelease _release([String platform = 'macos-arm64']) {
+  final manifest = UpdateManifest.parse(
+    manifestOf('1.2.0+12', platforms: [platform]),
+  );
   return UpdateRelease(
     manifest: manifest,
-    platform: 'macos-arm64',
-    asset: manifest.assetFor('macos-arm64')!,
+    platform: platform,
+    asset: manifest.assetFor(platform)!,
   );
 }
 
@@ -177,6 +182,258 @@ void main() {
       registered = (_) => true;
       expect(await installer.installedPerMachine(), isFalse);
     });
+  });
+
+  group('Linux', () {
+    const installPath = '/opt/baocode/baocode';
+
+    late String packageFile;
+
+    final forkReleases = Uri.parse(
+      'https://github.com/NmouZh/baocode-for-archlinux/releases',
+    );
+
+    setUp(() {
+      final directory = Directory(p.join(temp.path, 'updates', '1.2.0'))
+        ..createSync(recursive: true);
+      packageFile = p.join(
+        directory.path,
+        'baocode-bin-1.2.0-1-x86_64.pkg.tar.zst',
+      );
+      File(packageFile).createSync();
+    });
+
+    /// A pkexec that exists, where pacman is asked through.
+    String pkexecIn(Directory directory) =>
+        (File(p.join(directory.path, 'pkexec'))..createSync()).path;
+
+    LinuxUpdateInstaller installerIn(
+      _FakeProcesses processes, {
+      String? pkexec,
+      String executable = installPath,
+    }) => LinuxUpdateInstaller(
+      executable: executable,
+      pid: 4242,
+      updatesDirectory: p.join(temp.path, 'updates'),
+      processes: processes,
+      pkexec: pkexec ?? pkexecIn(temp),
+    );
+
+    /// Answers pacman's ownership query as [output] and [exit] say.
+    _FakeProcesses pacman({
+      String output = 'baocode-bin\n',
+      int exit = 0,
+      String stderr = '',
+    }) => _FakeProcesses((executable, arguments) {
+      expect(executable, 'pacman');
+      expect(arguments, ['-Qoq', installPath]);
+      return _result(exit, output, stderr);
+    });
+
+    test('asks pacman which package owns the app', () async {
+      for (final name in ['baocode', 'baocode-bin']) {
+        final assetFile = p.join(
+          p.dirname(packageFile),
+          '$name-1.2.0-1-x86_64.pkg.tar.zst',
+        );
+        File(assetFile).createSync();
+        final processes = pacman(output: '$name\n');
+        final update = await installerIn(
+          processes,
+        ).prepare(assetFile, _release('linux-x64'));
+        expect(processes.runs.single, ['pacman', '-Qoq', installPath]);
+        expect(processes.started, isEmpty, reason: 'not before the app quits');
+        await update.launch();
+        expect(processes.started.single, [
+          '/bin/bash',
+          p.join(p.dirname(packageFile), 'install.sh'),
+        ]);
+      }
+    });
+
+    test('an app pacman does not own is updated by hand', () async {
+      for (final (exit, output, stderr) in [
+        (1, '', 'error: No package owns $installPath\n'),
+        (0, 'other\n', ''),
+        (0, '', ''),
+      ]) {
+        final processes = pacman(
+          exit: exit,
+          output: output,
+          stderr: stderr,
+        );
+        await expectLater(
+          installerIn(processes).prepare(packageFile, _release('linux-x64')),
+          throwsA(
+            isA<ManualUpdateRequired>()
+                .having((e) => e.reason, 'reason', contains(stderr.trim()))
+                .having((e) => e.downloadPage, 'page', forkReleases),
+          ),
+        );
+      }
+    });
+
+    test('refuses the other package\'s asset', () async {
+      // A baocode-bin download for an app the baocode package owns, and
+      // the other way around.
+      final binOwner = pacman(output: 'baocode\n');
+      await expectLater(
+        installerIn(binOwner).prepare(packageFile, _release('linux-x64')),
+        throwsA(
+          isA<ManualUpdateRequired>()
+              .having((e) => e.reason, 'reason', contains('baocode'))
+              .having((e) => e.downloadPage, 'page', forkReleases),
+        ),
+      );
+      final sourceFile = p.join(
+        p.dirname(packageFile),
+        'baocode-1.2.0-1-x86_64.pkg.tar.zst',
+      );
+      File(sourceFile).createSync();
+      final sourceOwner = pacman(output: 'baocode-bin\n');
+      await expectLater(
+        installerIn(sourceOwner).prepare(sourceFile, _release('linux-x64')),
+        throwsA(
+          isA<ManualUpdateRequired>().having(
+            (e) => e.downloadPage,
+            'page',
+            forkReleases,
+          ),
+        ),
+      );
+    });
+
+    test('no pkexec is a manual update too', () async {
+      final processes = pacman();
+      await expectLater(
+        installerIn(
+          processes,
+          pkexec: p.join(temp.path, 'no-pkexec'),
+        ).prepare(packageFile, _release('linux-x64')),
+        throwsA(
+          isA<ManualUpdateRequired>().having(
+            (e) => e.downloadPage,
+            'page',
+            linuxDownloadPage,
+          ),
+        ),
+      );
+    });
+
+    test('installs with pacman through pkexec, then reopens', () async {
+      final processes = pacman();
+      final pkexec = pkexecIn(temp);
+      final update = await installerIn(processes, pkexec: pkexec)
+          .prepare(packageFile, _release('linux-x64'));
+      expect(processes.started, isEmpty);
+      await update.launch();
+      final script = p.join(p.dirname(packageFile), 'install.sh');
+      expect(processes.started.single, ['/bin/bash', script]);
+      final text = File(script).readAsStringSync();
+      expect(
+        text,
+        contains(
+          "'$pkexec' 'pacman' '-U' '--noconfirm' '$packageFile'",
+        ),
+      );
+      expect(text, contains('pid=4242\n'));
+      expect(
+        text,
+        contains("exec >>'${p.join(temp.path, 'updates', 'install.log')}'"),
+      );
+      final order = [
+        'if \'$pkexec\' \'pacman\' \'-U\' \'--noconfirm\'',
+        'then',
+        'kill -0 "\$pid"',
+        'setsid "\$executable"',
+        'rm -f "\$0"',
+      ];
+      var at = 0;
+      for (final step in order) {
+        final found = text.indexOf(step, at);
+        expect(found, greaterThan(-1), reason: step);
+        at = found;
+      }
+      // It runs: bash finds no syntax error.
+      expect(Process.runSync('bash', ['-n', script]).exitCode, 0);
+    });
+
+    test('updates need pacman, so the fallback is the fork releases', () {
+      expect(
+        linuxDownloadPage,
+        Uri.parse('https://github.com/NmouZh/baocode-for-archlinux/releases'),
+      );
+    });
+  });
+
+  test('Linux checks the fork releases and the package pacman installed', () async {
+    expect(
+      updateManifestUrl(isLinux: true, override: ''),
+      Uri.parse(forkReleasesUrl),
+    );
+    final processes = _FakeProcesses((executable, arguments) {
+      expect(executable, 'pacman');
+      expect(arguments, ['-Qoq', '/opt/baocode/baocode']);
+      return _result(0, 'baocode-bin\n');
+    });
+    final backend = updateBackend(
+      isLinux: true,
+      override: '',
+      updatesDirectory: temp.path,
+      executable: '/opt/baocode/baocode',
+      processes: processes,
+      userAgent: 'BaoCode/test',
+    );
+    expect(backend, isA<GitHubUpdateBackend>());
+    expect(
+      await (backend as GitHubUpdateBackend).packageName(),
+      'baocode-bin',
+    );
+    expect(processes.runs.single, ['pacman', '-Qoq', '/opt/baocode/baocode']);
+  });
+
+  test('BAOCODE_UPDATE_URL still wins on Linux', () {
+    const override = 'https://mirror.example/latest.json';
+    expect(
+      updateManifestUrl(isLinux: true, override: override),
+      Uri.parse(override),
+    );
+    final processes = _FakeProcesses((_, _) => _result(0, 'baocode\n'));
+    final backend = updateBackend(
+      isLinux: true,
+      override: override,
+      updatesDirectory: temp.path,
+      executable: '/opt/baocode/baocode',
+      processes: processes,
+      userAgent: 'BaoCode/test',
+    );
+    expect(backend, isA<IoUpdateBackend>());
+    expect(processes.runs, isEmpty);
+  });
+
+  test('macOS and Windows keep the upstream manifest and its override', () {
+    expect(
+      updateManifestUrl(isLinux: false, override: ''),
+      Uri.parse(defaultManifestUrl),
+    );
+    const override = 'https://mirror.example/latest.json';
+    expect(
+      updateManifestUrl(isLinux: false, override: override),
+      Uri.parse(override),
+    );
+    final processes = _FakeProcesses((_, _) => _result(0));
+    expect(
+      updateBackend(
+        isLinux: false,
+        override: '',
+        updatesDirectory: temp.path,
+        executable: '/Applications/BaoCode.app/Contents/MacOS/BaoCode',
+        processes: processes,
+        userAgent: 'BaoCode/test',
+      ),
+      isA<IoUpdateBackend>(),
+    );
+    expect(processes.runs, isEmpty);
   });
 
   test('a Mac updates to the build for its processor', () {
