@@ -1,0 +1,23 @@
+pkgbase = baocode-bin
+	pkgdesc = A desktop UI for Claude Code, with a fast IDE built in
+	pkgver = 1.9.5
+	pkgrel = 1
+	url = https://github.com/NmouZh/baocode-for-archlinux
+	arch = x86_64
+	arch = aarch64
+	license = GPL-3.0-only
+	depends = glibc
+	depends = gtk3
+	depends = xz
+	depends = util-linux
+	depends = bash
+	provides = baocode
+	conflicts = baocode
+	options = !strip
+	options = !debug
+	source_x86_64 = https://github.com/baocode-dev/baocode/releases/download/v1.9.5/BaoCode-1.9.5-linux-amd64.tar.gz
+	sha256sums_x86_64 = ec6d2111f03e9290beb717b8fc84cef3aaef4adffaec6a3148d2a6e46f7d43f3
+	source_aarch64 = https://github.com/baocode-dev/baocode/releases/download/v1.9.5/BaoCode-1.9.5-linux-arm64.tar.gz
+	sha256sums_aarch64 = e2b0bb3387230477d2be90b0650ad63cc7fbb6304de64dd81e986dcce898aecb
+
+pkgname = baocode-bin
