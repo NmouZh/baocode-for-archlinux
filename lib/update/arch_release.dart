@@ -137,13 +137,27 @@ String? archFromMachine(String machine) {
   }
 }
 
+/// Whether [fileName] is a package built from [pkgname].
+///
+/// Arch names packages `<pkgname>-<pkgver>-<pkgrel>-<arch>.pkg.tar.zst`.
+/// The prefix match is exact: `baocode-bin-...` is not an asset of
+/// `baocode`. pkgver starts with a digit, so requiring that after the
+/// prefix keeps a longer package name from passing as a shorter one.
+bool isPackageAssetOf(String fileName, String pkgname) {
+  const suffix = '.pkg.tar.zst';
+  final prefix = '$pkgname-';
+  if (!fileName.startsWith(prefix) || !fileName.endsWith(suffix)) {
+    return false;
+  }
+  final remainder = fileName.substring(
+    prefix.length,
+    fileName.length - suffix.length,
+  );
+  return RegExp(r'^\d').hasMatch(remainder);
+}
+
 /// The `.pkg.tar.zst` [release] asset built from [pkgname] for [arch], or
 /// null when the release has none.
-///
-/// Asset names are `<pkgname>-<pkgver>-<pkgrel>-<arch>.pkg.tar.zst`. The
-/// prefix match is exact: `baocode-bin-...` is not an asset of `baocode`.
-/// pkgver starts with a digit, so requiring that after the prefix keeps a
-/// longer package name from passing as a shorter one.
 GitHubReleaseAsset? selectPackageAsset(
   GitHubRelease release,
   String pkgname,
@@ -153,7 +167,7 @@ GitHubReleaseAsset? selectPackageAsset(
   final suffix = '-$arch.pkg.tar.zst';
   for (final asset in release.assets) {
     final name = asset.name;
-    if (!name.startsWith(prefix)) continue;
+    if (!isPackageAssetOf(name, pkgname)) continue;
     if (!name.endsWith(suffix)) continue;
     if (name.length <= prefix.length + suffix.length) continue;
     final remainder = name.substring(
@@ -164,8 +178,6 @@ GitHubReleaseAsset? selectPackageAsset(
     if (pkgrelSeparator <= 0 || pkgrelSeparator == remainder.length - 1) {
       continue;
     }
-    final pkgver = remainder.substring(0, pkgrelSeparator);
-    if (!RegExp(r'^\d').hasMatch(pkgver)) continue;
     return asset;
   }
   return null;
@@ -192,14 +204,11 @@ String? parsePacmanOwnership(String output, String executablePath) {
 }
 
 /// The command that installs a downloaded Arch package with pacman behind
-/// one privilege prompt.
-List<String> pacmanInstallCommand(String assetPath) => [
-  'pkexec',
-  'pacman',
-  '-U',
-  '--noconfirm',
-  assetPath,
-];
+/// one privilege prompt, through [pkexec] (the installer's path to it).
+List<String> pacmanInstallCommand(
+  String assetPath, {
+  String pkexec = 'pkexec',
+}) => [pkexec, 'pacman', '-U', '--noconfirm', assetPath];
 
 /// Where updates come from: the upstream manifest elsewhere; on Linux the
 /// fork's GitHub releases, unless [envUpdateUrl] overrides it. The

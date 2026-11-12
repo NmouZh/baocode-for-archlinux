@@ -227,7 +227,7 @@ class UpdateService extends ChangeNotifier {
   final AppVersion current;
 
   /// This build's platform key; null where there are no updates (a debug
-  /// build, the web, Linux).
+  /// build, the web).
   final String? platform;
 
   final Uri manifestUrl;

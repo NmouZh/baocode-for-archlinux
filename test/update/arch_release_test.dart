@@ -213,6 +213,72 @@ void main() {
         isNull,
       );
     });
+
+    test('needs a pkgrel and the right architecture', () {
+      final noPkgrel = releasesOf([
+        releaseJson(
+          'v1.9.5',
+          assets: [assetJson('baocode-1.9.5-x86_64.pkg.tar.zst')],
+        ),
+      ]).single;
+      expect(selectPackageAsset(noPkgrel, 'baocode', 'x86_64'), isNull);
+
+      final otherArch = releasesOf([
+        releaseJson(
+          'v1.9.5',
+          assets: [assetJson('baocode-1.9.5-1-aarch64.pkg.tar.zst')],
+        ),
+      ]).single;
+      expect(selectPackageAsset(otherArch, 'baocode', 'x86_64'), isNull);
+    });
+  });
+
+  group('package file name', () {
+    test('matches only the exact package name it was built from', () {
+      expect(
+        isPackageAssetOf(
+          'baocode-1.9.5.r17.gabc1234-1-x86_64.pkg.tar.zst',
+          'baocode',
+        ),
+        isTrue,
+      );
+      expect(
+        isPackageAssetOf(
+          'baocode-bin-1.9.5-1-x86_64.pkg.tar.zst',
+          'baocode-bin',
+        ),
+        isTrue,
+      );
+      expect(
+        isPackageAssetOf('baocode-bin-1.9.5-1-x86_64.pkg.tar.zst', 'baocode'),
+        isFalse,
+        reason: 'the version has to start where the shorter name ends',
+      );
+      expect(
+        isPackageAssetOf('baocode-1.9.5-1-x86_64.pkg.tar.zst', 'baocode-bin'),
+        isFalse,
+      );
+    });
+
+    test('rejects other names, other formats and a version without digits', () {
+      expect(
+        isPackageAssetOf('baocode-1.9.5-1-x86_64.pkg.tar.xz', 'baocode'),
+        isFalse,
+      );
+      expect(
+        isPackageAssetOf('/tmp/baocode-1.9.5-1-x86_64.pkg.tar.zst', 'baocode'),
+        isFalse,
+      );
+      expect(
+        isPackageAssetOf('baocode-nightly-1-x86_64.pkg.tar.zst', 'baocode'),
+        isFalse,
+      );
+      expect(isPackageAssetOf('baocode-.pkg.tar.zst', 'baocode'), isFalse);
+      expect(
+        isPackageAssetOf('other-1.9.5-1-x86_64.pkg.tar.zst', 'baocode'),
+        isFalse,
+      );
+    });
   });
 
   group('pacman ownership', () {
@@ -268,11 +334,22 @@ void main() {
   });
 
   group('pacman install', () {
+    const assetPath =
+        '/home/user/.local/share/baocode/updates/1.9.5/baocode-1.9.5-1-x86_64.pkg.tar.zst';
+
     test('builds a one-prompt pacman command', () {
-      const assetPath =
-          '/home/user/.local/share/baocode/updates/1.9.5/baocode-1.9.5-1-x86_64.pkg.tar.zst';
       expect(pacmanInstallCommand(assetPath), [
         'pkexec',
+        'pacman',
+        '-U',
+        '--noconfirm',
+        assetPath,
+      ]);
+    });
+
+    test('uses the pkexec the installer resolved', () {
+      expect(pacmanInstallCommand(assetPath, pkexec: '/usr/bin/pkexec'), [
+        '/usr/bin/pkexec',
         'pacman',
         '-U',
         '--noconfirm',

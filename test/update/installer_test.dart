@@ -238,9 +238,8 @@ void main() {
         );
         File(assetFile).createSync();
         final processes = pacman(output: '$name\n');
-        final update = await installerIn(
-          processes,
-        ).prepare(assetFile, _release('linux-x64'));
+        final update = await installerIn(processes)
+            .prepare(assetFile, _release('linux-x64'));
         expect(processes.runs.single, ['pacman', '-Qoq', installPath]);
         expect(processes.started, isEmpty, reason: 'not before the app quits');
         await update.launch();
@@ -252,21 +251,29 @@ void main() {
     });
 
     test('an app pacman does not own is updated by hand', () async {
-      for (final (exit, output, stderr) in [
-        (1, '', 'error: No package owns $installPath\n'),
-        (0, 'other\n', ''),
-        (0, '', ''),
+      // Every way the query can say no: pacman's own error, an exit with
+      // nothing to say, and a success that still names neither package.
+      for (final (exit, output, stderr, detail) in [
+        (
+          1,
+          '',
+          'error: No package owns $installPath\n',
+          'error: No package owns $installPath',
+        ),
+        (1, '', '', 'pacman exited 1'),
+        (0, 'other\n', '', 'pacman did not name a BaoCode package'),
+        (0, '', '', 'pacman did not name a BaoCode package'),
       ]) {
-        final processes = pacman(
-          exit: exit,
-          output: output,
-          stderr: stderr,
-        );
+        final processes = pacman(exit: exit, output: output, stderr: stderr);
         await expectLater(
           installerIn(processes).prepare(packageFile, _release('linux-x64')),
           throwsA(
             isA<ManualUpdateRequired>()
-                .having((e) => e.reason, 'reason', contains(stderr.trim()))
+                .having(
+                  (e) => e.reason,
+                  'reason',
+                  'BaoCode was not installed by pacman ($detail)',
+                )
                 .having((e) => e.downloadPage, 'page', forkReleases),
           ),
         );
@@ -323,8 +330,10 @@ void main() {
     test('installs with pacman through pkexec, then reopens', () async {
       final processes = pacman();
       final pkexec = pkexecIn(temp);
-      final update = await installerIn(processes, pkexec: pkexec)
-          .prepare(packageFile, _release('linux-x64'));
+      final update = await installerIn(
+        processes,
+        pkexec: pkexec,
+      ).prepare(packageFile, _release('linux-x64'));
       expect(processes.started, isEmpty);
       await update.launch();
       final script = p.join(p.dirname(packageFile), 'install.sh');
@@ -332,9 +341,7 @@ void main() {
       final text = File(script).readAsStringSync();
       expect(
         text,
-        contains(
-          "'$pkexec' 'pacman' '-U' '--noconfirm' '$packageFile'",
-        ),
+        contains("'$pkexec' 'pacman' '-U' '--noconfirm' '$packageFile'"),
       );
       expect(text, contains('pid=4242\n'));
       expect(
@@ -366,31 +373,34 @@ void main() {
     });
   });
 
-  test('Linux checks the fork releases and the package pacman installed', () async {
-    expect(
-      updateManifestUrl(isLinux: true, override: ''),
-      Uri.parse(forkReleasesUrl),
-    );
-    final processes = _FakeProcesses((executable, arguments) {
-      expect(executable, 'pacman');
-      expect(arguments, ['-Qoq', '/opt/baocode/baocode']);
-      return _result(0, 'baocode-bin\n');
-    });
-    final backend = updateBackend(
-      isLinux: true,
-      override: '',
-      updatesDirectory: temp.path,
-      executable: '/opt/baocode/baocode',
-      processes: processes,
-      userAgent: 'BaoCode/test',
-    );
-    expect(backend, isA<GitHubUpdateBackend>());
-    expect(
-      await (backend as GitHubUpdateBackend).packageName(),
-      'baocode-bin',
-    );
-    expect(processes.runs.single, ['pacman', '-Qoq', '/opt/baocode/baocode']);
-  });
+  test(
+    'Linux checks the fork releases and the package pacman installed',
+    () async {
+      expect(
+        updateManifestUrl(isLinux: true, override: ''),
+        Uri.parse(forkReleasesUrl),
+      );
+      final processes = _FakeProcesses((executable, arguments) {
+        expect(executable, 'pacman');
+        expect(arguments, ['-Qoq', '/opt/baocode/baocode']);
+        return _result(0, 'baocode-bin\n');
+      });
+      final backend = updateBackend(
+        isLinux: true,
+        override: '',
+        updatesDirectory: temp.path,
+        executable: '/opt/baocode/baocode',
+        processes: processes,
+        userAgent: 'BaoCode/test',
+      );
+      expect(backend, isA<GitHubUpdateBackend>());
+      expect(
+        await (backend as GitHubUpdateBackend).packageName(),
+        'baocode-bin',
+      );
+      expect(processes.runs.single, ['pacman', '-Qoq', '/opt/baocode/baocode']);
+    },
+  );
 
   test('BAOCODE_UPDATE_URL still wins on Linux', () {
     const override = 'https://mirror.example/latest.json';

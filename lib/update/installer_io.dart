@@ -249,9 +249,7 @@ class WindowsUpdateInstaller implements UpdateInstaller {
     // build folder (or a copy), which Setup would install beside, not over.
     final uninstaller = File(p.join(p.dirname(executable), 'unins000.exe'));
     if (!await uninstaller.exists()) {
-      throw ManualUpdateRequired(
-        'BaoCode was not installed by its installer',
-      );
+      throw ManualUpdateRequired('BaoCode was not installed by its installer');
     }
     final arguments = windowsInstallerArguments(
       perMachine: await installedPerMachine(),
@@ -517,9 +515,6 @@ rm -f "\$0"
 
 // --- Linux -------------------------------------------------------------------
 
-/// Where the packages install the app (packaging/).
-const linuxInstallDirectory = '/opt/baocode';
-
 /// Where Linux users download a package by hand: the fork's releases.
 final linuxDownloadPage = Uri.parse(
   'https://github.com/NmouZh/baocode-for-archlinux/releases',
@@ -544,10 +539,16 @@ Future<PacmanOwnership> pacmanOwnership(
 ) async {
   try {
     final result = await processes.run('pacman', ['-Qoq', executable]);
-    final packageName = result.exitCode == 0
-        ? parsePacmanOwnership('${result.stdout}', executable)
-        : null;
-    if (packageName != null) return (packageName: packageName, error: null);
+    if (result.exitCode == 0) {
+      final packageName = parsePacmanOwnership('${result.stdout}', executable);
+      if (packageName != null) {
+        return (packageName: packageName, error: null);
+      }
+      return (
+        packageName: null,
+        error: 'pacman did not name a BaoCode package',
+      );
+    }
     final stderr = '${result.stderr}'.trim();
     return (
       packageName: null,
@@ -602,7 +603,7 @@ class LinuxUpdateInstaller implements UpdateInstaller {
         downloadPage: linuxDownloadPage,
       );
     }
-    if (!_isPackageOf(p.basename(file), pkgname)) {
+    if (!isPackageAssetOf(p.basename(file), pkgname)) {
       throw ManualUpdateRequired(
         'The update is not the $pkgname package',
         downloadPage: linuxDownloadPage,
@@ -629,23 +630,6 @@ class LinuxUpdateInstaller implements UpdateInstaller {
   }
 }
 
-/// Whether [fileName] is a package built from [pkgname] (rather than the
-/// other of the two, which pacman reports as conflicting): Arch names them
-/// `<pkgname>-<pkgver>-<pkgrel>-<arch>.pkg.tar.zst`, and a version starts
-/// with a digit, which keeps `baocode-bin-` from passing as `baocode-`.
-bool _isPackageOf(String fileName, String pkgname) {
-  const suffix = '.pkg.tar.zst';
-  final prefix = '$pkgname-';
-  if (!fileName.startsWith(prefix) || !fileName.endsWith(suffix)) {
-    return false;
-  }
-  final remainder = fileName.substring(
-    prefix.length,
-    fileName.length - suffix.length,
-  );
-  return RegExp(r'^\d').hasMatch(remainder);
-}
-
 /// The script that installs [package] with pacman as root (through
 /// [pkexec]; the old version kept if that is turned down or fails), waits
 /// (two minutes at most) for the app, process [pid], to quit, and opens
@@ -658,8 +642,8 @@ String linuxUpdateScript({
   required String pkexec,
   required String log,
 }) {
-  final command = pacmanInstallCommand(package);
-  final install = [pkexec, ...command.skip(1)].map(_shQuote).join(' ');
+  final command = pacmanInstallCommand(package, pkexec: pkexec);
+  final install = command.map(_shQuote).join(' ');
   return '''
 #!/bin/bash
 # Installs a BaoCode update, then opens it again once the app has quit

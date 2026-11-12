@@ -69,11 +69,11 @@ makepkg -si
 
 Linux 的更新源是本 fork 的 GitHub Releases，而不是上游的 `https://dl.baocode.dev/releases/latest.json`：
 
-- **Release 列表**：`https://api.github.com/repos/NmouZh/baocode-for-archlinux/releases`（后端请求时附加 `?per_page=20`）；API 请求同样先直连，网络失败或 5xx 时经 `https://gh-proxy.com/` 重试。
+- **Release 列表**：`https://api.github.com/repos/NmouZh/baocode-for-archlinux/releases`（后端请求时附加 `?per_page=20`）；API 请求同样先直连，网络失败、5xx 或返回的不是 JSON 时经 `https://gh-proxy.com/` 重试，4xx 不重试。内容解析成功后的语义问题（没有稳定版本、缺少对应资产等）不会重试，因为换路由拿到的内容相同。
 - **版本选择**：取语义版本最高的非 draft、非 prerelease Release，不依赖 GitHub 的 latest 标记；显式镜像的旧版本 Release 不会变成更新。
 - **包识别**：用 `pacman -Qoq /opt/baocode/baocode` 查询可执行文件归属。输出 `baocode` 或 `baocode-bin`，据此选择同名包的资产；架构映射为 `x86_64` 或 `aarch64`。
 - **资产名**：与安装包一致，例如 `baocode-bin-1.9.5-1-x86_64.pkg.tar.zst`、`baocode-bin-1.9.5-1-aarch64.pkg.tar.zst`、`baocode-1.9.5.r17.g54ebc20-1-x86_64.pkg.tar.zst`、`baocode-1.9.5.r17.g54ebc20-1-aarch64.pkg.tar.zst`。
-- **下载**：先直连；网络错误或 5xx 时对同一 URL 加 `https://gh-proxy.com/` 前缀重试，4xx 不重试。下载按 GitHub API 给出的资产大小与 `sha256:<hex>` digest 校验。
+- **下载**：先直连；网络错误、5xx 或校验失败（大小或 SHA-256 不符）时对同一 URL 加 `https://gh-proxy.com/` 前缀重试，4xx 不重试。每次尝试都重写 `.part` 文件；下载按 GitHub API 给出的资产大小与 `sha256:<hex>` digest 校验，两条路由都不通过时拒绝安装。
 - **安装**：校验通过后，安装脚本先执行 `pkexec pacman -U --noconfirm <下载的包>`（应用仍在运行，pkexec 在前台询问密码），然后等应用退出并重新启动它。包仍归 pacman 管理；安装脚本日志在数据目录的 `updates/install.log`。
 
 `update.mode`（自动/手动/关闭）与其它平台共用，机制见 [auto-update.md](auto-update.md)。

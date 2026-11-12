@@ -106,18 +106,19 @@ class GitHubUpdateBackend
   /// passes that URL to the constructor.
   @override
   Future<String> fetchManifest(Uri url) async {
-    final text = await _withFallback(
-      releasesApiUrl,
-      (candidate) => _getText(candidate),
-    );
-    final Object? json;
-    try {
-      json = jsonDecode(text);
-    } on FormatException catch (error) {
-      throw GitHubUpdateException(
-        'The releases list is not JSON (${error.message})',
-      );
-    }
+    // Decoding inside the fallback: a proxy copy may be intact where the
+    // direct one is not. Everything after it is a semantic failure of the
+    // same content, which the proxy cannot change.
+    final Object? json = await _withFallback(releasesApiUrl, (candidate) async {
+      final text = await _getText(candidate);
+      try {
+        return jsonDecode(text);
+      } on FormatException catch (error) {
+        throw _UnusableResponse(
+          'The releases list is not JSON (${error.message})',
+        );
+      }
+    });
     final latest = selectLatestRelease(parseGitHubReleases(json));
     if (latest == null) {
       throw const GitHubUpdateException('No stable release found');
@@ -208,19 +209,30 @@ class GitHubUpdateBackend
     }
     final part = File('${target.path}.part');
     await _deleteQuietly(part);
+    // Verification inside the fallback: corrupted bytes from one route may
+    // be intact through the other. The part file is rewritten for each
+    // candidate; the last verification problem is the one reported.
+    String? lastProblem;
     try {
-      await _withFallback(
-        release.asset.url,
-        (candidate) => _fetch(candidate, part, release.asset.size, onProgress),
-      );
+      await _withFallback(release.asset.url, (candidate) async {
+        await _deleteQuietly(part);
+        try {
+          await _fetch(candidate, part, release.asset.size, onProgress);
+        } on _VerificationFailure catch (error) {
+          lastProblem = error.problem;
+          rethrow;
+        }
+        final problem = await _verify(part, release);
+        if (problem == null) return;
+        lastProblem = problem;
+        await _deleteQuietly(part);
+        throw _VerificationFailure(problem);
+      });
     } on Object {
       await _deleteQuietly(part);
+      final problem = lastProblem;
+      if (problem != null) throw UpdateVerificationException(problem);
       rethrow;
-    }
-    final problem = await _verify(part, release);
-    if (problem != null) {
-      await _deleteQuietly(part);
-      throw UpdateVerificationException(problem);
     }
     await part.rename(target.path);
     return target.path;
@@ -265,11 +277,16 @@ class GitHubUpdateBackend
         last = error;
       }
     }
-    throw GitHubUpdateException('GitHub could not be reached: $last');
+    throw last is _UnusableResponse
+        ? GitHubUpdateException(last.message)
+        : GitHubUpdateException('GitHub could not be reached: $last');
   }
 
   static bool _retryable(Object error) =>
-      error is IOException || error is TimeoutException;
+      error is IOException ||
+      error is TimeoutException ||
+      error is _UnusableResponse ||
+      error is _VerificationFailure;
 
   /// The releases list's text at [url].
   Future<String> _getText(Uri url) async {
@@ -319,7 +336,7 @@ class GitHubUpdateBackend
         await for (final chunk in response.timeout(timeout)) {
           received += chunk.length;
           if (received > total) {
-            throw const UpdateVerificationException(
+            throw const _VerificationFailure(
               'The download is larger than it should be',
             );
           }
@@ -329,7 +346,7 @@ class GitHubUpdateBackend
       } finally {
         await sink.close();
       }
-    } on UpdateVerificationException {
+    } on _VerificationFailure {
       await _deleteQuietly(part);
       rethrow;
     } finally {
@@ -374,4 +391,26 @@ class _HttpStatusException implements Exception {
 
   @override
   String toString() => 'HTTP $statusCode from $uri';
+}
+
+/// The releases list's body did not decode as JSON. Another route may have
+/// an intact copy, so the fallback treats it as retryable.
+class _UnusableResponse implements Exception {
+  const _UnusableResponse(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
+/// The bytes a route served did not verify (size, digest, or too much
+/// data). Another route may serve intact bytes, so the fallback retries.
+class _VerificationFailure implements Exception {
+  const _VerificationFailure(this.problem);
+
+  final String problem;
+
+  @override
+  String toString() => problem;
 }
