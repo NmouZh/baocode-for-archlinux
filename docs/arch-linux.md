@@ -187,4 +187,4 @@ git push origin master
 
 ### 验证状态
 
-**需在 Actions 启用后验证**：`sync` 的每日运行与冲突 issue、x86_64/aarch64 的 `makepkg`、四个包的构建与校验、`publish` 的 Release 创建/覆盖，以及 `aur` 的真实推送，都只能在 fork 的 GitHub Actions 中验证。fork 的 Actions 与定时 workflow 默认关闭，仓库所有者需先在 Actions 页面手动启用一次。本文档的本地验证只覆盖静态结构、命令/名称与链接。
+首次手动 `workflow_dispatch` 于 2026-11-12 通过：`sync` 合并上游、`prepare` 写打包提交并推送 `main` 与 tag、四个包的 `makepkg`（含 aarch64 源码包）、`publish` 创建 `v1.9.5` Release 并上传四个 `.pkg.tar.zst`、`aur` job 校验 `.SRCINFO` 后因未配置 secret 跳过推送。每日 cron 与合并冲突 issue 尚未实际触发；AUR 真实推送仍需创建 AUR 包并配置 `AUR_SSH_PRIVATE_KEY` 后才能验证。
