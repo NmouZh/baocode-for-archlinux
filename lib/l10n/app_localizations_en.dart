@@ -7390,7 +7390,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get updatesSettingsDescription =>
-      'BaoCode looks for new versions on baocode.dev.';
+      'BaoCode looks for new versions online.';
 
   @override
   String get updateCurrentVersion => 'Current Version';
@@ -7465,12 +7465,11 @@ class AppLocalizationsEn extends AppLocalizations {
       'Updates are turned off (update.mode is \"none\").';
 
   @override
-  String get updateUnsupported =>
-      'This build of BaoCode doesn\'t update itself.';
+  String get updateUnsupported => 'This build of BaoCode has no updates.';
 
   @override
   String updateManual(String reason) {
-    return 'BaoCode can\'t update itself here ($reason). Download the new version from baocode.dev.';
+    return 'BaoCode can\'t update itself here ($reason). Download the new version from the download page.';
   }
 
   @override
@@ -7478,7 +7477,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String updateUnfinished(String version, String current) {
-    return 'BaoCode $version wasn\'t installed: this is still $current. Try again from Settings > Updates, or download it from baocode.dev.';
+    return 'BaoCode $version wasn\'t installed: this is still $current. Try again from Settings > Updates, or download it from the download page.';
   }
 
   @override

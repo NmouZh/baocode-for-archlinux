@@ -150,17 +150,27 @@ void main() {
     service.dispose();
   });
 
-  testWidgets('a problem restarting is shown on the page', (tester) async {
+  testWidgets('a problem restarting is shown, its download page opens', (
+    tester,
+  ) async {
+    final page = Uri.parse(
+      'https://github.com/NmouZh/baocode-for-archlinux/releases',
+    );
     final installer = FakeInstaller()
-      ..prepareError = const ManualUpdateRequired('read-only');
+      ..downloadPage = page
+      ..prepareError = ManualUpdateRequired(
+        'not a pacman package',
+        downloadPage: page,
+      );
     final service = serviceOf(
       FakeBackend(manifestOf('1.2.0')),
       installer: installer,
     );
+    final opened = <Uri>[];
     final controller = UpdateController(
       service: service,
       quit: () async {},
-      openUrl: (_) async {},
+      openUrl: (url) async => opened.add(url),
     );
     await service.check(manual: true);
     await show(
@@ -170,8 +180,13 @@ void main() {
     await tester.tap(button(l10n.updateRestartNow));
     await tester.pump();
     await tester.pump();
-    expect(find.text(l10n.updateManual('read-only')), findsOneWidget);
-    expect(button(l10n.updateOpenDownloadPage), findsOneWidget);
+    expect(
+      find.text(l10n.updateManual('not a pacman package')),
+      findsOneWidget,
+    );
+    await tester.tap(button(l10n.updateOpenDownloadPage));
+    await tester.pump();
+    expect(opened, [page]);
     service.dispose();
   });
 

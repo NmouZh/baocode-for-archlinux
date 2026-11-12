@@ -260,9 +260,7 @@ class _UpdatesSettingsPageState extends State<UpdatesSettingsPage> {
                     label: l10n.updateOpenDownloadPage,
                     secondary: true,
                     onPressed: () => unawaited(
-                      widget.updates!.openUrl(
-                        ManualUpdateRequired.downloadPage,
-                      ),
+                      widget.updates!.openUrl(problem.downloadPage),
                     ),
                   ),
                 IdeButton(
