@@ -452,6 +452,10 @@ jobs:
           set -euo pipefail
           useradd -m builder
           chown -R builder:builder "$GITHUB_WORKSPACE"
+          # Arch Linux ARM's makepkg.conf still defaults to .pkg.tar.xz; the
+          # validation, artifacts, release assets and updater all name
+          # .pkg.tar.zst, so force it in this job's container only.
+          sed -i "s|^PKGEXT=.*|PKGEXT='.pkg.tar.zst'|" /etc/makepkg.conf
 
       - name: Build the package
         shell: bash
