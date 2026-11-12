@@ -1,0 +1,7 @@
+# makepkg's working trees and downloaded sources
+src/
+pkg/
+*.pkg.tar.*
+BaoCode-*.tar.gz
+baocode-*.tar.gz
+flutter_linux_*.tar.xz
