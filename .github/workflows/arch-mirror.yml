@@ -1,0 +1,381 @@
+# Mirrors upstream releases as Arch packages. `sync` merges upstream main
+# every day (or checks out one release tag when asked), `prepare` computes the
+# checksums and writes the packaging commit. The build, publish and AUR jobs
+# are appended to this file by their own tickets.
+name: Arch mirror
+
+on:
+  schedule:
+    # Daily, off the hour: GitHub's queue is busiest at :00.
+    - cron: '23 4 * * *'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Upstream release to mirror, without the "v" (default: the latest release)'
+        type: string
+        required: false
+      force_rebuild:
+        description: 'Bump pkgrel and move the release tag to the new packaging commit'
+        type: boolean
+        default: false
+
+# Push main and the release tags; open the merge-conflict issue.
+permissions:
+  contents: write
+  issues: write
+
+# One mirror run at a time, and a started run is never cancelled: it may be
+# halfway through pushing.
+concurrency:
+  group: arch-mirror
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: Sync upstream
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+      source_commit: ${{ steps.resolve.outputs.source_commit }}
+      commits_ahead: ${{ steps.resolve.outputs.commits_ahead }}
+      should_release: ${{ steps.resolve.outputs.should_release }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION_INPUT: ${{ inputs.version }}
+      FORCE_REBUILD: ${{ inputs.force_rebuild || false }}
+    steps:
+      # The fork's own repository, whose token may push main.
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Merge upstream main, or check out the release tag
+        id: resolve
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git remote add upstream https://github.com/baocode-dev/baocode.git
+          # The merge commit below needs an author: checkout configures none.
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          # Upstream tags live under their own namespace: v<version> in the
+          # fork is a packaging tag, not upstream's release tag.
+          git fetch --no-tags upstream \
+            '+refs/heads/main:refs/remotes/upstream/main' \
+            '+refs/tags/*:refs/upstream-tags/*'
+
+          version_input=${VERSION_INPUT#v}
+          if [[ -n $version_input ]]; then
+            explicit=true
+            version=$version_input
+          else
+            explicit=false
+            # The latest release, not a prerelease and not a draft.
+            tag=$(gh api repos/baocode-dev/baocode/releases/latest --jq .tag_name)
+            version=${tag#v}
+          fi
+          if [[ ! $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Not a marketing version: $version"
+            exit 1
+          fi
+          if ! git rev-parse --verify --quiet "refs/upstream-tags/v$version^{commit}" >/dev/null; then
+            echo "::error::Upstream has no v$version tag"
+            exit 1
+          fi
+
+          if [[ $explicit == true ]]; then
+            # A version exists only as an upstream release.
+            if ! gh api "repos/baocode-dev/baocode/releases/tags/v$version" >/dev/null; then
+              echo "::error::Upstream has no v$version release"
+              exit 1
+            fi
+            # The release's commit, not main: main stays as it is.
+            source_commit=$(git rev-parse "refs/upstream-tags/v$version^{commit}")
+            commits_ahead=0
+            git checkout --detach "$source_commit"
+            # The fork's archive of this commit must resolve before prepare
+            # hashes it. A temporary tag keeps the commit reachable there;
+            # prepare deletes it once the release tag is pushed.
+            git push --force origin \
+              "$source_commit:refs/tags/arch-source-$version"
+          else
+            git checkout -B main origin/main
+            if ! git merge --no-ff -m "Merge upstream main" refs/remotes/upstream/main; then
+              conflicts=$(git diff --name-only --diff-filter=U || true)
+              git merge --abort || true
+
+              run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+              body=$(printf 'Merging upstream main into main failed.\n\n- Run: %s\n- Conflicted files:\n' "$run_url")
+              if [[ -n $conflicts ]]; then
+                while IFS= read -r file; do
+                  body+="- $file"$'\n'
+                done <<< "$conflicts"
+              else
+                body+="- (git merge failed without listing a conflict)"$'\n'
+              fi
+
+              # One open issue per problem: a new run comments on it instead
+              # of opening another.
+              existing=$(gh issue list --state open --limit 100 --json number,title \
+                --jq '[.[] | select(.title == "[arch] 上游合并冲突") | .number] | first // empty')
+              if [[ -n $existing ]]; then
+                gh issue comment "$existing" --body "$body"
+              else
+                gh issue create --title '[arch] 上游合并冲突' \
+                  --label ready-for-human --body "$body"
+              fi
+              echo "::error::Upstream merge conflicted; see the open issue"
+              exit 1
+            fi
+            git push origin main
+            source_commit=$(git rev-parse HEAD)
+            commits_ahead=$(git rev-list --count "refs/upstream-tags/v$version..HEAD")
+          fi
+
+          # Only an upstream release is mirrored, and only once: the daily
+          # merge and push above happen even when this is false. An explicit
+          # version is updated idempotently, and a forced rebuild re-releases
+          # the same version.
+          should_release=false
+          if [[ $explicit == true || $FORCE_REBUILD == true ]]; then
+            should_release=true
+          elif releases=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --paginate --jq '.[].tag_name'); then
+            if ! grep -Fxq "v$version" <<< "$releases"; then
+              should_release=true
+            fi
+          else
+            echo "::error::Could not list the fork's releases"
+            exit 1
+          fi
+
+          {
+            echo "version=$version"
+            echo "source_commit=$source_commit"
+            echo "commits_ahead=$commits_ahead"
+            echo "should_release=$should_release"
+          } >> "$GITHUB_OUTPUT"
+          echo "version=$version source_commit=$source_commit commits_ahead=$commits_ahead should_release=$should_release"
+
+  prepare:
+    name: Prepare the packaging commit
+    needs: sync
+    if: needs.sync.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    # base-devel supplies makepkg (and refuses to run it as root), so
+    # --printsrcinfo runs as the throwaway builder below. dart is Arch's
+    # extra package, 3.13.x at the time of writing: bump.dart only imports
+    # dart:convert and dart:io and needs the 3.13 language, so it runs
+    # directly as a script (no pub get) -- the 3.13.4 the release builds use
+    # has no Arch package.
+    container: archlinux:base-devel
+    outputs:
+      packaging_commit: ${{ steps.packaging.outputs.packaging_commit }}
+      version: ${{ steps.packaging.outputs.version }}
+      tag: ${{ steps.packaging.outputs.tag }}
+      source_commit: ${{ steps.packaging.outputs.source_commit }}
+      source_pkgver: ${{ steps.packaging.outputs.source_pkgver }}
+      bin_pkgver: ${{ steps.packaging.outputs.bin_pkgver }}
+      pkgrel: ${{ steps.packaging.outputs.pkgrel }}
+      assets: ${{ steps.packaging.outputs.assets }}
+      notes_paths: ${{ steps.packaging.outputs.notes_paths }}
+    env:
+      GITHUB_TOKEN: ${{ github.token }}
+      VERSION: ${{ needs.sync.outputs.version }}
+      SOURCE_COMMIT: ${{ needs.sync.outputs.source_commit }}
+      COMMITS_AHEAD: ${{ needs.sync.outputs.commits_ahead }}
+      VERSION_INPUT: ${{ inputs.version }}
+      FORCE_REBUILD: ${{ inputs.force_rebuild || false }}
+    steps:
+      # The bare image has neither git nor the rest of the runner's tools;
+      # the checkout action needs git, so install first.
+      - name: Install the packaging tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          pacman -Syu --noconfirm --needed git curl jq dart
+
+      # fetch-depth 0 also fetches every tag, including arch-source-<version>
+      # for an explicit version.
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Rewrite the PKGBUILDs and push the packaging commit
+        id: packaging
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Default path: the merge commit sync pushed to main. Explicit
+          # version: the upstream tag's commit sync kept reachable, plus the
+          # packaging tree from main (an upstream tag predates packaging/) --
+          # and bump.dart, kept outside the checkout since that commit has
+          # no tool/arch/.
+          cp tool/arch/bump.dart "$RUNNER_TEMP/bump.dart"
+          if [[ -n ${VERSION_INPUT#v} ]]; then
+            git checkout --detach "refs/tags/arch-source-$VERSION"
+            git checkout origin/main -- packaging
+          else
+            git checkout -B main origin/main
+          fi
+          if [[ $(git rev-parse HEAD) != "$SOURCE_COMMIT" ]]; then
+            echo "::error::HEAD is $(git rev-parse HEAD), not the synced $SOURCE_COMMIT"
+            exit 1
+          fi
+
+          # A new upstream version starts at pkgrel 1; rerunning the same
+          # version keeps the pkgrel it already has; a forced rebuild adds
+          # one so pacman sees it as newer.
+          current_pkgrel=$(sed -n 's/^pkgrel=//p' packaging/baocode-bin/PKGBUILD)
+          current_pkgver=$(sed -n 's/^pkgver=//p' packaging/baocode-bin/PKGBUILD)
+          [[ $current_pkgrel =~ ^[1-9][0-9]*$ ]] \
+            || { echo "::error::Not a pkgrel: $current_pkgrel"; exit 1; }
+          if [[ $FORCE_REBUILD == true ]]; then
+            pkgrel=$(dart "$RUNNER_TEMP/bump.dart" pkgrel --current "$current_pkgrel" --force)
+          elif [[ $current_pkgver == "$VERSION" ]]; then
+            pkgrel=$current_pkgrel
+          else
+            pkgrel=1
+          fi
+
+          source_pkgver=$(dart "$RUNNER_TEMP/bump.dart" pkgver \
+            --upstream "$VERSION" --ahead "$COMMITS_AHEAD" --short-sha "$SOURCE_COMMIT")
+          bin_pkgver=$VERSION
+
+          # The fork's archive of the source commit. main was pushed by sync,
+          # or arch-source-<version> holds the commit; retries only wait for
+          # GitHub to generate the tarball.
+          archive="https://github.com/$GITHUB_REPOSITORY/archive/$SOURCE_COMMIT.tar.gz"
+          fork_archive="$RUNNER_TEMP/baocode-fork.tar.gz"
+          curl -fsSL --retry 10 --retry-delay 5 --retry-all-errors \
+            -o "$fork_archive" "$archive"
+          fork_sha=$(sha256sum "$fork_archive" | cut -d' ' -f1)
+
+          # The upstream release's own tarballs, whose GitHub per-asset
+          # digests are used when present (all current assets have one).
+          release_json="$RUNNER_TEMP/upstream-release.json"
+          curl -fsSL --retry 5 --retry-all-errors \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            -o "$release_json" \
+            "https://api.github.com/repos/baocode-dev/baocode/releases/tags/v$VERSION"
+
+          asset_sha256() {
+            local name=$1 id digest
+            id=$(jq -er --arg name "$name" \
+              '.assets[] | select(.name == $name) | .id' "$release_json") \
+              || { echo "::error::Upstream release has no $name asset"; exit 1; }
+            digest=$(jq -r --arg name "$name" \
+              '.assets[] | select(.name == $name) | .digest // empty' "$release_json")
+            if [[ $digest == sha256:* ]]; then
+              printf '%s\n' "${digest#sha256:}"
+              return 0
+            fi
+            # No digest on the asset: hash the download instead.
+            curl -fsSL --retry 5 --retry-all-errors \
+              -H "Authorization: Bearer $GITHUB_TOKEN" \
+              -H 'Accept: application/octet-stream' \
+              -o "$RUNNER_TEMP/upstream-asset.tar.gz" \
+              "https://api.github.com/repos/baocode-dev/baocode/releases/assets/$id"
+            sha256sum "$RUNNER_TEMP/upstream-asset.tar.gz" | cut -d' ' -f1
+          }
+
+          amd64_sha=$(asset_sha256 "BaoCode-$VERSION-linux-amd64.tar.gz")
+          arm64_sha=$(asset_sha256 "BaoCode-$VERSION-linux-arm64.tar.gz")
+
+          # bump.dart owns pkgver, pkgrel, _commit and the checksum arrays;
+          # the source package's upstream tarball names come from
+          # _upstream_version, which it leaves alone.
+          sed -i "s/^_upstream_version=.*/_upstream_version=$VERSION/" \
+            packaging/baocode/PKGBUILD
+
+          dart "$RUNNER_TEMP/bump.dart" rewrite \
+            --file packaging/baocode/PKGBUILD \
+            --pkgver "$source_pkgver" \
+            --pkgrel "$pkgrel" \
+            --commit "$SOURCE_COMMIT" \
+            --sums "sha256sums_x86_64=$fork_sha,$amd64_sha" \
+            --sums "sha256sums_aarch64=$fork_sha,$arm64_sha"
+          dart "$RUNNER_TEMP/bump.dart" rewrite \
+            --file packaging/baocode-bin/PKGBUILD \
+            --pkgver "$bin_pkgver" --pkgrel "$pkgrel" \
+            --sums "sha256sums_x86_64=$amd64_sha" \
+            --sums "sha256sums_aarch64=$arm64_sha"
+          dart "$RUNNER_TEMP/bump.dart" rewrite \
+            --file packaging/aur/baocode-bin/PKGBUILD \
+            --pkgver "$bin_pkgver" --pkgrel "$pkgrel" \
+            --sums "sha256sums_x86_64=$amd64_sha" \
+            --sums "sha256sums_aarch64=$arm64_sha"
+
+          # makepkg refuses root; a throwaway builder owns the workspace so
+          # it can write src/ and .SRCINFO, and root's git trusts it.
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          useradd -m builder
+          chown -R builder:builder "$GITHUB_WORKSPACE"
+          (
+            cd packaging/aur/baocode-bin
+            runuser -u builder -- env HOME=/home/builder makepkg --printsrcinfo
+          ) > packaging/aur/baocode-bin/.SRCINFO
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add packaging/baocode/PKGBUILD \
+            packaging/baocode-bin/PKGBUILD \
+            packaging/aur/baocode-bin/PKGBUILD \
+            packaging/aur/baocode-bin/.SRCINFO
+          if git diff --cached --quiet; then
+            echo "::notice::The PKGBUILDs already say $VERSION; reusing $(git rev-parse HEAD)"
+            packaging_commit=$(git rev-parse HEAD)
+          else
+            git commit -m "Arch: mirror $VERSION (pkgrel $pkgrel)"
+            packaging_commit=$(git rev-parse HEAD)
+          fi
+
+          if [[ -n ${VERSION_INPUT#v} ]]; then
+            # Explicit version: the packaging commit sits on the release's
+            # commit and main does not move.
+            git tag -f "v$VERSION" "$packaging_commit"
+            git push --force origin "refs/tags/v$VERSION"
+            if ! git push origin --delete "refs/tags/arch-source-$VERSION"; then
+              echo "::warning::Could not delete arch-source-$VERSION"
+            fi
+          else
+            # Default path: the packaging commit on main, the release tag on
+            # it. The tag is moved when a previous run failed before publish.
+            git push origin "HEAD:main"
+            git tag -f "v$VERSION" "$packaging_commit"
+            git push --force origin "refs/tags/v$VERSION"
+          fi
+
+          # What publish will need: the packages makepkg is expected to make
+          # and the mirrored release notes found in the built tree.
+          assets=$(printf '["%s","%s","%s","%s"]' \
+            "baocode-$source_pkgver-$pkgrel-x86_64.pkg.tar.zst" \
+            "baocode-$source_pkgver-$pkgrel-aarch64.pkg.tar.zst" \
+            "baocode-bin-$bin_pkgver-$pkgrel-x86_64.pkg.tar.zst" \
+            "baocode-bin-$bin_pkgver-$pkgrel-aarch64.pkg.tar.zst")
+          notes=()
+          for language in en zh; do
+            path="release-notes/$VERSION.$language.md"
+            if git cat-file -e "HEAD:$path" 2>/dev/null; then
+              notes+=("$path")
+            fi
+          done
+          notes_paths=${notes[*]:-}
+
+          {
+            echo "packaging_commit=$packaging_commit"
+            echo "version=$VERSION"
+            echo "tag=v$VERSION"
+            echo "source_commit=$SOURCE_COMMIT"
+            echo "source_pkgver=$source_pkgver"
+            echo "bin_pkgver=$bin_pkgver"
+            echo "pkgrel=$pkgrel"
+            echo "assets=$assets"
+            echo "notes_paths=$notes_paths"
+          } >> "$GITHUB_OUTPUT"
+          echo "::notice::Packaged $VERSION at $packaging_commit (pkgrel $pkgrel)"
