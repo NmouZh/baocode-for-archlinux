@@ -1,7 +1,7 @@
 # Mirrors upstream releases as Arch packages. `sync` merges upstream main
 # every day (or checks out one release tag when asked), `prepare` computes the
-# checksums and writes the packaging commit. The build, publish and AUR jobs
-# are appended to this file by their own tickets.
+# checksums and writes the packaging commit, `build` makes the four packages.
+# The publish and AUR jobs are appended to this file by their own tickets.
 name: Arch mirror
 
 on:
@@ -379,3 +379,161 @@ jobs:
             echo "notes_paths=$notes_paths"
           } >> "$GITHUB_OUTPUT"
           echo "::notice::Packaged $VERSION at $packaging_commit (pkgrel $pkgrel)"
+
+  build:
+    name: Build ${{ matrix.pkg }} (${{ matrix.arch }})
+    # sync is listed as well as prepare: needs only exposes the outputs of a
+    # job's direct dependencies, and the condition below reads sync's.
+    needs: [sync, prepare]
+    if: needs.sync.outputs.should_release == 'true'
+    runs-on: ${{ matrix.arch == 'aarch64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    # x86_64 runs the official Arch image; aarch64 runs the Arch Linux ARM
+    # image from https://github.com/Menci/docker-archlinuxarm, which that
+    # project builds on GitHub Actions and publishes for linux/arm64 (the
+    # official archlinux image has no aarch64 variant). Its base-devel tag
+    # supplies makepkg and the base-devel group.
+    container: ${{ matrix.arch == 'aarch64' && 'menci/archlinuxarm:base-devel' || 'archlinux:base-devel' }}
+    permissions:
+      contents: read
+    strategy:
+      # A failed leg must not cancel the others; see continue-on-error below.
+      fail-fast: false
+      matrix:
+        pkg: [baocode, baocode-bin]
+        arch: [x86_64, aarch64]
+        # Repository variable ARCH_AARCH64_SOURCE=off skips the aarch64 source
+        # package leg, which clones Flutter and compiles the app on ARM; unset
+        # or any other value keeps it. This is a one-value axis rather than a
+        # job-level `if` because a job `if` cannot read the matrix, and an
+        # include entry would add the leg back after exclude (include is
+        # processed after exclude). Off yields ["off"], so exclude matches the
+        # baocode/aarch64 combination; on yields ["on"], which matches none.
+        aarch64_source: ${{ fromJSON(vars.ARCH_AARCH64_SOURCE == 'off' && '["off"]' || '["on"]') }}
+        exclude:
+          - pkg: baocode
+            arch: aarch64
+            aarch64_source: 'off'
+    # The aarch64 source build may fail (no native Flutter SDK archive; the
+    # PKGBUILD clones it) and must not block publish. A failed leg uploads no
+    # artifact, which publish must treat as a missing package.
+    continue-on-error: ${{ matrix.pkg == 'baocode' && matrix.arch == 'aarch64' }}
+    # The source package downloads Flutter and Rust and compiles the app; the
+    # binary package only unpacks the upstream archive.
+    timeout-minutes: 360
+    env:
+      PKG: ${{ matrix.pkg }}
+      ARCH: ${{ matrix.arch }}
+      # The version prepare rewrote into the PKGBUILD.
+      PKG_VERSION: ${{ matrix.pkg == 'baocode' && needs.prepare.outputs.source_pkgver || needs.prepare.outputs.bin_pkgver }}
+      PKGREL: ${{ needs.prepare.outputs.pkgrel }}
+    steps:
+      # The bare image has neither git (needed by the checkout action) nor
+      # namcap (needed by the validation step), so install them first.
+      - name: Install the build tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          pacman -Syu --noconfirm --needed git namcap
+
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.prepare.outputs.packaging_commit }}
+          fetch-depth: 1
+
+      - name: Create the non-root builder
+        shell: bash
+        run: |
+          set -euo pipefail
+          useradd -m builder
+          chown -R builder:builder "$GITHUB_WORKSPACE"
+
+      - name: Build the package
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "packaging/$PKG"
+
+          # makepkg refuses to run as root. Root installs the PKGBUILD's
+          # depends/makedepends, then makepkg builds as builder; no passwordless
+          # sudo is involved.
+          # shellcheck disable=SC1091
+          source PKGBUILD
+          build_deps=("${depends[@]}")
+          if [[ -n ${makedepends+x} ]]; then
+            build_deps+=("${makedepends[@]}")
+          fi
+          pacman -S --noconfirm --needed --asdeps "${build_deps[@]}"
+          runuser -u builder -- env HOME=/home/builder makepkg --noconfirm
+
+      - name: Validate the package
+        shell: bash
+        run: |
+          set -euo pipefail
+          # pacman localizes its field names; the assertions below read them.
+          export LC_ALL=C
+          pkgfile=$(find "packaging/$PKG" -maxdepth 1 -type f -name '*.pkg.tar.zst' -print -quit)
+          if [[ -z $pkgfile ]]; then
+            echo "::error::makepkg produced no .pkg.tar.zst in packaging/$PKG"
+            exit 1
+          fi
+
+          echo "::group::pacman -Qip"
+          info=$(pacman -Qip "$pkgfile")
+          printf '%s\n' "$info"
+          grep -Eq "^Name +: $PKG$" <<< "$info" \
+            || { echo "::error::unexpected package name"; exit 1; }
+          grep -Eq "^Architecture +: $ARCH$" <<< "$info" \
+            || { echo "::error::unexpected package architecture"; exit 1; }
+          grep -Eq "^Version +: $PKG_VERSION-$PKGREL$" <<< "$info" \
+            || { echo "::error::unexpected package version"; exit 1; }
+          echo "::endgroup::"
+
+          echo "::group::namcap"
+          report=$(namcap "$pkgfile")
+          printf '%s\n' "$report"
+          # Warnings are expected: the bundle ships unstripped binaries. An
+          # error means the package itself is malformed.
+          if grep -q '^E:' <<< "$report"; then
+            echo "::error::namcap reported package errors"
+            exit 1
+          fi
+          echo "::endgroup::"
+
+          echo "::group::bsdtar -tf"
+          # Package members have no leading slash; also accept ./ in case
+          # makepkg's tar invocation changes.
+          entries=$(bsdtar -tf "$pkgfile" | sed -e 's|^\./||' -e 's|^/||')
+          for path in \
+            opt/baocode/baocode \
+            usr/bin/baocode \
+            usr/share/applications/baocode.desktop \
+            usr/share/icons/hicolor/128x128/apps/baocode.png \
+            opt/baocode/remote/VERSION
+          do
+            if ! grep -Fxq "$path" <<< "$entries"; then
+              echo "::error::the package is missing $path"
+              exit 1
+            fi
+          done
+          echo "::endgroup::"
+
+          # The checksum references the basename, like a downloaded release
+          # asset, so publish can ship it as-is.
+          package_dir=$(dirname "$pkgfile")
+          package_name=$(basename "$pkgfile")
+          (
+            cd "$package_dir"
+            sha256sum "$package_name" > "$package_name.sha256"
+          )
+          echo "::notice::Built and validated $pkgfile"
+
+      # The artifact name is publish's contract: arch-<pkgname>-<arch>.
+      - name: Upload the package
+        uses: actions/upload-artifact@v6
+        with:
+          name: arch-${{ matrix.pkg }}-${{ matrix.arch }}
+          path: |
+            packaging/${{ matrix.pkg }}/*.pkg.tar.zst
+            packaging/${{ matrix.pkg }}/*.pkg.tar.zst.sha256
+          if-no-files-found: error
+          overwrite: true
