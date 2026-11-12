@@ -1,0 +1,159 @@
+# Maintainer: BaoCode <noreply@baocode.dev>
+#
+# Source package for the Arch mirror of BaoCode: the fork's fixed commit is
+# built with Flutter 3.47.5 and Rust 1.97.1 the way
+# .github/workflows/release.yml's Linux job builds it. The upstream release
+# tarball supplies only remote/VERSION and remote/servers.json, which the
+# app downloads remote server builds from.
+#
+# pkgver, pkgrel, _commit and the sha256sums arrays are rewritten by
+# tool/arch/bump.dart; each assignment must start a line.
+
+pkgname=baocode
+pkgver=1.9.5.r17.g54ebc20
+pkgrel=1
+_commit=54ebc2008292ea3669a9ee3ec7899a5c4210ec3a
+_upstream_version=1.9.5
+
+pkgdesc='A desktop UI for Claude Code, with a fast IDE built in'
+arch=('x86_64' 'aarch64')
+url="https://github.com/NmouZh/baocode-for-archlinux"
+license=('GPL-3.0-only')
+depends=('glibc' 'gtk3' 'xz' 'util-linux' 'bash')
+makedepends=('clang' 'cmake' 'ninja' 'curl' 'git' 'unzip' 'zip')
+conflicts=('baocode-bin')
+options=('!strip' '!debug')
+
+_flutter_version=3.47.5
+# Flutter's own releases_linux.json publishes this for the x86_64 stable
+# archive; the aarch64 SDK has no archive and is cloned at the tag below.
+_flutter_sha256_x86_64=2132e990f236f8d22e7c6314b29a191a95b10d7cbcfec9b4e2e303d996652cbb
+
+source_x86_64=(
+  "baocode-${_commit}.tar.gz::https://github.com/NmouZh/baocode-for-archlinux/archive/${_commit}.tar.gz"
+  "BaoCode-${_upstream_version}-linux-amd64.tar.gz::https://github.com/baocode-dev/baocode/releases/download/v${_upstream_version}/BaoCode-${_upstream_version}-linux-amd64.tar.gz"
+)
+source_aarch64=(
+  "baocode-${_commit}.tar.gz::https://github.com/NmouZh/baocode-for-archlinux/archive/${_commit}.tar.gz"
+  "BaoCode-${_upstream_version}-linux-arm64.tar.gz::https://github.com/baocode-dev/baocode/releases/download/v${_upstream_version}/BaoCode-${_upstream_version}-linux-arm64.tar.gz"
+)
+# Only remote/ is read from the upstream tarballs; unpacking the whole
+# bundle would litter $srcdir with a second copy of the executable.
+noextract=(
+  "BaoCode-${_upstream_version}-linux-amd64.tar.gz"
+  "BaoCode-${_upstream_version}-linux-arm64.tar.gz"
+)
+sha256sums_x86_64=(
+  '905622191811fa4bda740c47dc042d671b67d0e54168c9d47f36f2c6826c1bed'
+  'ec6d2111f03e9290beb717b8fc84cef3aaef4adffaec6a3148d2a6e46f7d43f3'
+)
+sha256sums_aarch64=(
+  '905622191811fa4bda740c47dc042d671b67d0e54168c9d47f36f2c6826c1bed'
+  'e2b0bb3387230477d2be90b0650ad63cc7fbb6304de64dd81e986dcce898aecb'
+)
+
+_source_dir="baocode-for-archlinux-${_commit}"
+
+prepare() {
+  cd "$srcdir"
+
+  # The remote server's build list, as tool/package_linux_deb.sh takes it
+  # from build/remote/. The upstream tarball is the only supplier here.
+  local upstream_arch
+  case "$CARCH" in
+    x86_64) upstream_arch=amd64 ;;
+    aarch64) upstream_arch=arm64 ;;
+    *) error "Unsupported architecture: $CARCH" ;;
+  esac
+  rm -rf upstream
+  mkdir upstream
+  bsdtar -xf "BaoCode-${_upstream_version}-linux-${upstream_arch}.tar.gz" -C upstream
+  [[ -f upstream/remote/VERSION && -f upstream/remote/servers.json ]] \
+    || error "The upstream tarball has no remote/VERSION or remote/servers.json"
+
+  # Flutter, as release.yml's Linux job gets it. Flutter publishes no Linux
+  # arm64 SDK archive, so there the release tag is cloned.
+  if [[ $CARCH == x86_64 ]]; then
+    if [[ ! -x flutter/bin/flutter ]]; then
+      curl -fL --retry 3 -o "flutter_linux_${_flutter_version}-stable.tar.xz" \
+        "https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_${_flutter_version}-stable.tar.xz"
+      echo "${_flutter_sha256_x86_64}  flutter_linux_${_flutter_version}-stable.tar.xz" \
+        | sha256sum -c -
+      rm -rf flutter
+      bsdtar -xf "flutter_linux_${_flutter_version}-stable.tar.xz"
+    fi
+  elif [[ ! -x flutter/bin/flutter ]]; then
+    rm -rf flutter
+    git clone --depth 1 --branch "$_flutter_version" \
+      https://github.com/flutter/flutter.git flutter
+  fi
+}
+
+build() {
+  cd "$srcdir/$_source_dir"
+  export PATH="$srcdir/flutter/bin:$PATH"
+
+  # rustup and the toolchain packages/bao_iroh/rust/rust-toolchain.toml
+  # names, as .github/actions/setup-rust sets them up for the release build.
+  export RUSTUP_HOME="$srcdir/rustup"
+  export CARGO_HOME="$srcdir/cargo"
+  if [[ ! -x $CARGO_HOME/bin/rustup ]]; then
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+      | sh -s -- -y --no-modify-path --default-toolchain none --profile minimal
+  fi
+  export PATH="$CARGO_HOME/bin:$PATH"
+  ( cd packages/bao_iroh/rust && rustup toolchain install --profile minimal )
+
+  flutter build linux --release
+
+  # package_linux_deb.sh copies the remote server's files beside the
+  # executable before packaging; the upstream tarball's copies do that here.
+  local bundle_arch
+  case "$CARCH" in
+    x86_64) bundle_arch=x64 ;;
+    aarch64) bundle_arch=arm64 ;;
+  esac
+  local bundle="build/linux/${bundle_arch}/release/bundle"
+  install -d "$bundle/remote"
+  install -m644 "$srcdir/upstream/remote/VERSION" \
+    "$srcdir/upstream/remote/servers.json" "$bundle/remote/"
+}
+
+package() {
+  cd "$srcdir/$_source_dir"
+
+  local bundle_arch
+  case "$CARCH" in
+    x86_64) bundle_arch=x64 ;;
+    aarch64) bundle_arch=arm64 ;;
+  esac
+  local bundle="build/linux/${bundle_arch}/release/bundle"
+
+  install -d "$pkgdir/opt/baocode"
+  cp -a "$bundle/." "$pkgdir/opt/baocode/"
+
+  # The wrapper and the desktop entry's fields are the ones
+  # tool/package_linux_deb.sh installs from the .deb.
+  cat > "$srcdir/baocode-wrapper" <<'EOF'
+#!/bin/sh
+exec /opt/baocode/baocode "$@"
+EOF
+  install -Dm755 "$srcdir/baocode-wrapper" "$pkgdir/usr/bin/baocode"
+
+  cat > "$srcdir/baocode.desktop" <<'EOF'
+[Desktop Entry]
+Name=BaoCode
+Comment=Desktop app for Claude Code
+Exec=baocode %U
+Icon=baocode
+Terminal=false
+Type=Application
+Categories=Development;
+StartupWMClass=dev.baocode.desktop
+EOF
+  install -Dm644 "$srcdir/baocode.desktop" \
+    "$pkgdir/usr/share/applications/baocode.desktop"
+
+  install -Dm644 assets/branding/app_icon.png \
+    "$pkgdir/usr/share/icons/hicolor/128x128/apps/baocode.png"
+}
