@@ -210,6 +210,12 @@ jobs:
         run: |
           set -euo pipefail
 
+          # The checkout is owned by the runner's user while this container
+          # runs as root: git calls that dubious ownership and refuses the
+          # first checkout below. Trust the workspace up front; it stays
+          # trusted after the chown to builder.
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
           # Default path: the merge commit sync pushed to main. Explicit
           # version: the upstream tag's commit sync kept reachable, plus the
           # packaging tree from main (an upstream tag predates packaging/) --
@@ -313,8 +319,7 @@ jobs:
             --sums "sha256sums_aarch64=$arm64_sha"
 
           # makepkg refuses root; a throwaway builder owns the workspace so
-          # it can write src/ and .SRCINFO, and root's git trusts it.
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          # it can write src/ and .SRCINFO.
           useradd -m builder
           chown -R builder:builder "$GITHUB_WORKSPACE"
           (
