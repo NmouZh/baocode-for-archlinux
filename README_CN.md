@@ -46,8 +46,33 @@ BaoCode 是原生应用，直接通过 GPU 绘制界面。以下为英文 README
 
 ## 系统要求
 
-- macOS 12 或更新版本（Apple 芯片和 Intel 各提供一个下载版本），Windows 10 或更新版本（x64），或 Linux：Ubuntu 20.04 或更新版本及其他基于 Debian 的发行版（x64 和 arm64 各一个 .deb）。
+- macOS 12 或更新版本（Apple 芯片和 Intel 各提供一个下载版本），Windows 10 或更新版本（x64），或 Linux：Ubuntu 20.04 或更新版本及其他基于 Debian 的发行版（x64 和 arm64 各一个 .deb）；或 Arch Linux，本 fork 提供 `baocode` 和 `baocode-bin` 两个包（见 [docs/arch-linux.md](docs/arch-linux.md)）。
 - 已安装 [Claude Code](https://github.com/anthropics/claude-code)。
+
+## Arch Linux
+
+本 fork 为 Arch Linux 提供两个包：预编译的 `baocode-bin` 和从源码构建的 `baocode`。两者安装同一组文件并互相冲突，只能安装一个。
+
+从本 fork 的 [GitHub Releases](https://github.com/NmouZh/baocode-for-archlinux/releases) 下载对应架构的包，用 pacman 安装：
+
+```sh
+sudo pacman -U baocode-bin-1.9.5-1-x86_64.pkg.tar.zst   # aarch64 用 baocode-bin-1.9.5-1-aarch64.pkg.tar.zst
+```
+
+AUR 包发布后也可以：
+
+```sh
+yay -S baocode-bin
+```
+
+源码包从本 fork 构建，需要联网下载 Flutter 3.47.5 和 Rust 1.97.1，构建慢，不满足 AUR 规则：
+
+```sh
+cd packaging/baocode
+makepkg -si
+```
+
+Linux 的应用内更新检查本 fork 的 GitHub Releases，并用 `pkexec pacman -U --noconfirm` 安装；`BAOCODE_UPDATE_URL` 可覆盖更新源。打包、更新、信任模型、`makepkg` 代理与维护者操作见 [docs/arch-linux.md](docs/arch-linux.md)。
 
 ## 从源码构建
 
@@ -69,7 +94,7 @@ dart run tool/build_remote_server.dart    # 用于 Linux x64 和 arm64 的 SSH �
 
 完整测试套件运行较慢，开发时应只运行与修改相关的测试，例如 `flutter test test/update`。
 
-推送 `v*` 标签后，CI 会构建并发布发行版本。版本号、签名及发布位置的说明见 [docs/release.md](docs/release.md)。更多文档位于 [docs/](docs)，包括[自动更新](docs/auto-update.md)、[SSH 远程](docs/ssh-remote.md)和 [Windows](docs/windows.md)，其中部分文档为中文。
+推送 `v*` 标签后，CI 会构建并发布发行版本。版本号、签名及发布位置的说明见 [docs/release.md](docs/release.md)。更多文档位于 [docs/](docs)，包括[自动更新](docs/auto-update.md)、[Arch Linux](docs/arch-linux.md)、[SSH 远程](docs/ssh-remote.md)和 [Windows](docs/windows.md)，其中部分文档为中文。
 
 ## 仓库结构
 
