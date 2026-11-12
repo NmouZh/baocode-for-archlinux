@@ -95,8 +95,9 @@ build() {
 
   # Upstream's linux/CMakeLists.txt builds with -Werror; the current Arch
   # clang warns about login_window.cc's set-but-unused owner variable. That
-  # is upstream's to fix, so keep it from failing the packaging build.
-  export CXXFLAGS="${CXXFLAGS:-} -Wno-unused-but-set-global"
+  # is upstream's to fix, so drop -Werror for the packaging build; CXXFLAGS
+  # does not reach the target's own options.
+  sed -i 's/ -Werror//' linux/CMakeLists.txt
 
   # rustup and the toolchain packages/bao_iroh/rust/rust-toolchain.toml
   # names, as .github/actions/setup-rust sets them up for the release build.
