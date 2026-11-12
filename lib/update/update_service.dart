@@ -393,10 +393,11 @@ class UpdateService extends ChangeNotifier {
     _setStatus(UpdateStatus.checking);
     try {
       final text = await backend.fetchManifest(manifestUrl);
-      final manifest = UpdateManifest.parse(
-        text,
-        policy: UpdateUrlPolicy.forManifest(manifestUrl),
-      );
+      final policy = switch (backend) {
+        UpdateManifestPolicyProvider(:final manifestPolicy) => manifestPolicy,
+        _ => UpdateUrlPolicy.forManifest(manifestUrl),
+      };
+      final manifest = UpdateManifest.parse(text, policy: policy);
       store.lastChecked = _now();
       _installed = manifest.version.marketing == current.marketing
           ? manifest

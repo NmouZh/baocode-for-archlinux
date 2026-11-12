@@ -27,8 +27,16 @@ class UpdateManifestException implements Exception {
 /// subdomain of it), and [extraOrigins] besides — the origin of a manifest
 /// [manifestUrlVariable] points at, so a release can be tried from where it
 /// is served before it is published.
+///
+/// [requiresSignature] is false for a source that has no upstream Ed25519
+/// signature (the fork's GitHub releases, whose downloads are checked by
+/// size and SHA-256 digest instead). It only waives a missing signature: a
+/// signature that is there still has to be a real one.
 class UpdateUrlPolicy {
-  const UpdateUrlPolicy({this.extraOrigins = const {}});
+  const UpdateUrlPolicy({
+    this.extraOrigins = const {},
+    this.requiresSignature = true,
+  });
 
   /// For the manifest at [manifest]: its origin allowed too when it is not
   /// the default one.
@@ -38,9 +46,22 @@ class UpdateUrlPolicy {
       ? const UpdateUrlPolicy()
       : UpdateUrlPolicy(extraOrigins: {manifest.origin});
 
+  /// The fork's GitHub Releases: assets are served from github.com and the
+  /// source does not carry the upstream signature. [extraOrigins] adds the
+  /// origin the releases list itself came from, so a copy served elsewhere
+  /// (trying a release before it is published) may link to its own assets.
+  factory UpdateUrlPolicy.githubReleases({
+    Set<String> extraOrigins = const {},
+  }) => UpdateUrlPolicy(
+    extraOrigins: {'https://github.com', ...extraOrigins},
+    requiresSignature: false,
+  );
+
   static const domain = 'baocode.dev';
 
   final Set<String> extraOrigins;
+
+  final bool requiresSignature;
 
   bool allows(Uri url) {
     if (url.hasScheme &&
@@ -57,13 +78,20 @@ class UpdateUrlPolicy {
   }
 }
 
+/// A backend whose manifest comes from a source other than baocode.dev:
+/// it names the policy its own manifest text obeys, so [UpdateService]'s
+/// re-parse of that text accepts the same downloads the backend wrote.
+abstract interface class UpdateManifestPolicyProvider {
+  UpdateUrlPolicy get manifestPolicy;
+}
+
 /// One platform's download in a manifest.
 class UpdateAsset {
   const UpdateAsset({
     required this.url,
     required this.size,
     required this.sha256,
-    required this.signature,
+    this.signature,
   });
 
   final Uri url;
@@ -74,8 +102,9 @@ class UpdateAsset {
   /// The file's SHA-256, lowercase hex.
   final String sha256;
 
-  /// Ed25519 over [UpdateSignature.payload], base64.
-  final String signature;
+  /// Ed25519 over [UpdateSignature.payload], base64; null where the source
+  /// does not sign its downloads (the fork's GitHub releases).
+  final String? signature;
 
   /// The file's name, from [url].
   String get fileName =>
@@ -85,7 +114,7 @@ class UpdateAsset {
     'url': '$url',
     'size': size,
     'sha256': sha256,
-    'signature': signature,
+    'signature': ?signature,
   };
 }
 
@@ -231,10 +260,13 @@ class UpdateManifest {
     if (sha is! String || !_hex64.hasMatch(sha)) {
       throw const UpdateManifestException('"sha256" is missing or wrong');
     }
-    final signature = json['signature'];
-    if (signature is! String || _base64Length(signature) != 64) {
-      throw const UpdateManifestException('"signature" is missing or wrong');
-    }
+    final signature = switch (json['signature']) {
+      null when !policy.requiresSignature => null,
+      final String text when _base64Length(text) == 64 => text,
+      _ => throw const UpdateManifestException(
+        '"signature" is missing or wrong',
+      ),
+    };
     return UpdateAsset(
       url: url,
       size: size,

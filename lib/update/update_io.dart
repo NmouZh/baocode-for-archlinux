@@ -119,6 +119,8 @@ class IoUpdateBackend implements UpdateBackend {
     if ('$digest' != asset.sha256) {
       return 'The download does not match its SHA-256';
     }
+    final signature = asset.signature;
+    if (signature == null) return 'The download is not signed by BaoCode';
     final signed = UpdateSignature.verify(
       payload: UpdateSignature.payload(
         version: '${release.version}',
@@ -126,7 +128,7 @@ class IoUpdateBackend implements UpdateBackend {
         size: asset.size,
         sha256: asset.sha256,
       ),
-      signature: asset.signature,
+      signature: signature,
       publicKey: publicKey,
     );
     if (!signed) return 'The download is not signed by BaoCode';
