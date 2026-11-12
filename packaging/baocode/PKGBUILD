@@ -10,9 +10,9 @@
 # tool/arch/bump.dart; each assignment must start a line.
 
 pkgname=baocode
-pkgver=1.9.5.r56.g3e5f963
+pkgver=1.9.5.r60.g6bb562b
 pkgrel=1
-_commit=3e5f963749b431f6cff516b570d5cfd2c23f969d
+_commit=6bb562bbcd27993d19e6bbc4ae1a070ad2a7f5b0
 _upstream_version=1.9.5
 
 pkgdesc='A desktop UI for Claude Code, with a fast IDE built in'
@@ -44,11 +44,11 @@ noextract=(
   "BaoCode-${_upstream_version}-linux-arm64.tar.gz"
 )
 sha256sums_x86_64=(
-  'e8498fc4a472f922309fc60abe8d7874e48b96484dfd7e10e06f03cb43049d08'
+  'ae1a8f2e59e7f83760bc8d0b88138ee04a1cbc582e229393004348030739144d'
   'ec6d2111f03e9290beb717b8fc84cef3aaef4adffaec6a3148d2a6e46f7d43f3'
 )
 sha256sums_aarch64=(
-  'e8498fc4a472f922309fc60abe8d7874e48b96484dfd7e10e06f03cb43049d08'
+  'ae1a8f2e59e7f83760bc8d0b88138ee04a1cbc582e229393004348030739144d'
   'e2b0bb3387230477d2be90b0650ad63cc7fbb6304de64dd81e986dcce898aecb'
 )
 
