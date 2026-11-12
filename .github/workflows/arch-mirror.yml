@@ -332,7 +332,7 @@ jobs:
             echo "::notice::The PKGBUILDs already say $VERSION; reusing $(git rev-parse HEAD)"
             packaging_commit=$(git rev-parse HEAD)
           else
-            git commit -m "Arch: mirror $VERSION (pkgrel $pkgrel)"
+            git commit -m "chore(arch): mirror $VERSION (pkgrel $pkgrel)"
             packaging_commit=$(git rev-parse HEAD)
           fi
 
@@ -681,6 +681,34 @@ jobs:
             gh api -X PATCH \
               "repos/$GITHUB_REPOSITORY/releases/$release_id" \
               --input "$RUNNER_TEMP/release.json" >/dev/null
+
+            # --clobber replaces only same-named assets. A forced rebuild
+            # (new pkgrel) or an explicit-version re-mirror (new source
+            # pkgver) would leave the old package names beside this run's,
+            # so the release must end up with exactly these four. Other
+            # assets are left alone.
+            mapfile -t keep < <(
+              for package in "${packages[@]}"; do
+                basename "$package"
+              done
+            )
+            mapfile -t existing < <(
+              gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" \
+                --jq '.assets[].name'
+            )
+            for name in "${existing[@]}"; do
+              [[ $name == *.pkg.tar.zst ]] || continue
+              stale=true
+              for kept in "${keep[@]}"; do
+                if [[ $name == "$kept" ]]; then
+                  stale=false
+                  break
+                fi
+              done
+              if $stale; then
+                gh release delete-asset "$TAG" "$name" --yes
+              fi
+            done
             gh release upload "$TAG" --clobber "${packages[@]}"
           else
             gh release create "$TAG" --title "BaoCode $VERSION" \

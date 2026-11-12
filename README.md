@@ -69,6 +69,17 @@ cd packaging/baocode
 makepkg -si
 ```
 
+When GitHub is unreachable, build through a proxy (`makepkg`'s `curl` and `git` downloads read these):
+
+```sh
+export https_proxy=http://127.0.0.1:7890
+export http_proxy=$https_proxy
+cd packaging/baocode   # or packaging/baocode-bin
+makepkg -si
+```
+
+The proxy must reach GitHub and the Flutter and Rust download hosts.
+
 On Linux, in-app updates check this fork's GitHub Releases and install with `pkexec pacman -U --noconfirm`; `BAOCODE_UPDATE_URL` overrides the update source. Packaging, updates, the trust model, `makepkg` proxies, and maintainer operations are in [docs/arch-linux.md](docs/arch-linux.md).
 
 ## Building from source

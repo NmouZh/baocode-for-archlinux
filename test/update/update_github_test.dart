@@ -69,10 +69,7 @@ class _NoPacman implements UpdateProcesses {
       ProcessResult(0, 1, '', 'error: No package owns ${arguments.last}');
 
   @override
-  Future<void> startDetached(
-    String executable,
-    List<String> arguments,
-  ) async {}
+  Future<void> startDetached(String executable, List<String> arguments) async {}
 }
 
 String _route(Uri url) => url.path.substring(1);
@@ -213,6 +210,24 @@ void main() {
       final direct = server.url('releases');
       final proxied = server.proxyUrl(direct);
       server.statuses[_route(direct)] = HttpStatus.serviceUnavailable;
+      server.files[_route(proxied)] = Uint8List.fromList(
+        utf8.encode(
+          jsonEncode([
+            _releaseJson(tag: 'v1.9.5', assets: [assetOf()]),
+          ]),
+        ),
+      );
+
+      expect((await fetch()).version, AppVersion.parse('1.9.5'));
+      expect(server.requests, [_route(direct), _route(proxied)]);
+    });
+
+    test('a direct non-JSON answer is retried through gh-proxy.com', () async {
+      final direct = server.url('releases');
+      final proxied = server.proxyUrl(direct);
+      server.files[_route(direct)] = Uint8List.fromList(
+        utf8.encode('not a releases list'),
+      );
       server.files[_route(proxied)] = Uint8List.fromList(
         utf8.encode(
           jsonEncode([
@@ -469,6 +484,64 @@ void main() {
       ]);
     });
 
+    test('a direct download that does not verify is retried through '
+        'gh-proxy.com', () async {
+      final name = 'baocode-bin-1.9.5-1-x86_64.pkg.tar.zst';
+      final direct = server.url(name);
+      final proxied = server.proxyUrl(direct);
+      final corrupted = Uint8List.fromList([
+        for (final byte in bytes) byte ^ 0xff,
+      ]);
+      server.files[_route(direct)] = corrupted;
+      server.files[_route(proxied)] = bytes;
+      serveReleases([
+        _releaseJson(tag: 'v1.9.5', assets: [assetOf()]),
+      ]);
+      final release = await downloadedRelease();
+      server.requests.clear();
+
+      final progress = <int>[];
+      final path = await backend.download(
+        release,
+        onProgress: (received, total) => progress.add(received),
+      );
+      expect(await File(path).readAsBytes(), bytes);
+      expect(progress.last, bytes.length);
+      expect(server.requests, [_route(direct), _route(proxied)]);
+      expect(files(), [p.join('1.9.5', name)]);
+    });
+
+    test('both download routes corrupted is a verification failure', () async {
+      final name = 'baocode-bin-1.9.5-1-x86_64.pkg.tar.zst';
+      final direct = server.url(name);
+      final corrupted = Uint8List.fromList([
+        for (final byte in bytes) byte ^ 0xff,
+      ]);
+      server.files[_route(direct)] = corrupted;
+      server.files[_route(server.proxyUrl(direct))] = corrupted;
+      serveReleases([
+        _releaseJson(tag: 'v1.9.5', assets: [assetOf()]),
+      ]);
+      final release = await downloadedRelease();
+      server.requests.clear();
+
+      await expectLater(
+        backend.download(release),
+        throwsA(
+          isA<UpdateVerificationException>().having(
+            (e) => e.message,
+            'message',
+            contains('SHA-256'),
+          ),
+        ),
+      );
+      expect(server.requests, [
+        _route(direct),
+        _route(server.proxyUrl(direct)),
+      ]);
+      expect(files(), isEmpty, reason: 'the bad downloads are gone');
+    });
+
     test('both download routes failing is an error', () async {
       server.statuses[_route(
             server.url('baocode-bin-1.9.5-1-x86_64.pkg.tar.zst'),
@@ -590,48 +663,51 @@ void main() {
       expect(service.status, UpdateStatus.available);
     });
 
-    test('a non-pacman install is offered, then sent to the fork releases', () async {
-      final name = 'baocode-bin-1.9.5-1-x86_64.pkg.tar.zst';
-      server.files[name] = bytes;
-      serveReleases([
-        _releaseJson(tag: 'v1.9.5', assets: [assetOf()]),
-      ]);
-      final service = UpdateService(
-        current: AppVersion.parse('1.9.4'),
-        platform: 'linux-x64',
-        manifestUrl: Uri.parse(forkReleasesUrl),
-        backend: backendFor(packageName: null),
-        installer: LinuxUpdateInstaller(
-          executable: '/opt/baocode/baocode',
-          pid: 1,
-          updatesDirectory: directory.path,
-          processes: _NoPacman(),
-          pkexec: '/no/pkexec',
-        ),
-        mode: () => UpdateMode.manual,
-        store: MemoryUpdateStore(),
-      );
+    test(
+      'a non-pacman install is offered, then sent to the fork releases',
+      () async {
+        final name = 'baocode-bin-1.9.5-1-x86_64.pkg.tar.zst';
+        server.files[name] = bytes;
+        serveReleases([
+          _releaseJson(tag: 'v1.9.5', assets: [assetOf()]),
+        ]);
+        final service = UpdateService(
+          current: AppVersion.parse('1.9.4'),
+          platform: 'linux-x64',
+          manifestUrl: Uri.parse(forkReleasesUrl),
+          backend: backendFor(packageName: null),
+          installer: LinuxUpdateInstaller(
+            executable: '/opt/baocode/baocode',
+            pid: 1,
+            updatesDirectory: directory.path,
+            processes: _NoPacman(),
+            pkexec: '/no/pkexec',
+          ),
+          mode: () => UpdateMode.manual,
+          store: MemoryUpdateStore(),
+        );
 
-      final result = await service.check(manual: true);
-      expect(result, isA<UpdateFound>());
-      expect(
-        (result as UpdateFound).offer.release.asset.fileName,
-        name,
-        reason: 'the binary package is offered when pacman owns nothing',
-      );
-      await expectLater(
-        service.prepare(),
-        throwsA(
-          isA<ManualUpdateRequired>().having(
-            (e) => e.downloadPage,
-            'page',
-            Uri.parse(
-              'https://github.com/NmouZh/baocode-for-archlinux/releases',
+        final result = await service.check(manual: true);
+        expect(result, isA<UpdateFound>());
+        expect(
+          (result as UpdateFound).offer.release.asset.fileName,
+          name,
+          reason: 'the binary package is offered when pacman owns nothing',
+        );
+        await expectLater(
+          service.prepare(),
+          throwsA(
+            isA<ManualUpdateRequired>().having(
+              (e) => e.downloadPage,
+              'page',
+              Uri.parse(
+                'https://github.com/NmouZh/baocode-for-archlinux/releases',
+              ),
             ),
           ),
-        ),
-      );
-    });
+        );
+      },
+    );
 
     test('a check still refuses an unsigned upstream manifest', () async {
       final unsigned = jsonEncode({

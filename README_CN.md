@@ -72,6 +72,17 @@ cd packaging/baocode
 makepkg -si
 ```
 
+网络受限时，可以给 `makepkg` 设置代理后再构建：
+
+```sh
+export https_proxy=http://127.0.0.1:7890
+export http_proxy=$https_proxy
+cd packaging/baocode   # 或 packaging/baocode-bin
+makepkg -si
+```
+
+代理需能访问 GitHub 以及 Flutter、Rust 的下载地址。
+
 Linux 的应用内更新检查本 fork 的 GitHub Releases，并用 `pkexec pacman -U --noconfirm` 安装；`BAOCODE_UPDATE_URL` 可覆盖更新源。打包、更新、信任模型、`makepkg` 代理与维护者操作见 [docs/arch-linux.md](docs/arch-linux.md)。
 
 ## 从源码构建

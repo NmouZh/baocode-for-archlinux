@@ -76,7 +76,7 @@ BaoCode 的自动检查与升级：怎么工作、服务端约定、签名、出
 - **强制更新**：忽略“跳过”，每次自动检查都会再提示一次。
 - **没装上时提示**：启动安装程序后，退出前把目标版本记到 `state/storage.json` 的 `update.installingVersion`。下次启动时如果当前版本仍低于它（UAC 被拒、签名策略不让提权、文件被占用、安装还没完成就打开了旧版本等），主窗口弹出警告“BaoCode X 没有装上，当前仍是 Y”，按钮有“打开下载页”和“查看安装日志”。只提示一次。
 - **安装前确认**：点“立即重启更新”后，走的是和平时退出完全一样的流程：有未保存的文件就先问保存，有正在运行的 agent 或终端就先确认。用户取消退出，就**什么都不装**，下载好的安装包留着，下次点直接用。
-- **只有 release 构建自动更新**：`flutter run` 起的 debug 构建默认不更新（它会替换掉 build 目录里的应用）。设置页会显示“此版本的 BaoCode 不支持自动更新”。设置了 `BAOCODE_UPDATE_URL` 的情况除外，见第 8 节。Linux 的更新源与手动兜底见 [arch-linux.md](arch-linux.md)。
+- **只有 release 构建自动更新**：`flutter run` 起的 debug 构建默认不更新（它会替换掉 build 目录里的应用）。设置页会显示“此版本的 BaoCode 没有可用的更新源。”。设置了 `BAOCODE_UPDATE_URL` 的情况除外，见第 8 节。Linux 的更新源与手动兜底见 [arch-linux.md](arch-linux.md)。
 
 ---
 
@@ -295,7 +295,7 @@ https://dl.baocode.dev/
 | `pubDate` | 否 | ISO 8601 格式，目前只是记录下来 |
 | `notes` | 否 | `{语言: 文本}`，也可以直接写一个字符串（当作英文）。界面按应用语言取，取不到用 `en`，再取不到用任意一种 |
 | `minimumVersion` | 否 | 低于它的版本视为强制更新。格式写错时整份清单都会被拒绝 |
-| `platforms` | 是 | 平台键目前有 `windows-x64`、`macos-arm64`、`macos-x64`。Mac 按自己的处理器选：Apple silicon 取 `macos-arm64`；Intel 取 `macos-x64`；Intel 版在 Apple silicon 上经 Rosetta 运行时（`sysctl.proc_translated` 为 1）取 `macos-arm64`，借这次更新换成原生版（`installer_io.dart` 的 `macUpdatePlatform`）。1.0.0 最早发的是 universal 包、键是 `macos-universal`，那些安装找不到更新，要重新下载 |
+| `platforms` | 是 | 平台键目前有 `windows-x64`、`macos-arm64`、`macos-x64`、`linux-x64`、`linux-arm64`（Linux 的清单由 GitHub 后端从本 fork 的 Releases 合成，见 [arch-linux.md](arch-linux.md)）。Mac 按自己的处理器选：Apple silicon 取 `macos-arm64`；Intel 取 `macos-x64`；Intel 版在 Apple silicon 上经 Rosetta 运行时（`sysctl.proc_translated` 为 1）取 `macos-arm64`，借这次更新换成原生版（`installer_io.dart` 的 `macUpdatePlatform`）。1.0.0 最早发的是 universal 包、键是 `macos-universal`，那些安装找不到更新，要重新下载 |
 | `url` | 是 | 见 5.3 |
 | `size` | 是 | 正整数，单位字节 |
 | `sha256` | 是 | 64 位十六进制，大小写都可以 |
@@ -480,7 +480,7 @@ flutter test test/update
 
 | 现象 | 可能原因 | 处理 |
 | --- | --- | --- |
-| 设置页显示“此版本的 BaoCode 不支持自动更新” | 这是 debug 构建，或者平台没有更新支持 | 用 release 构建；Linux（Arch）的更新源见 [arch-linux.md](arch-linux.md)；或者设置 `BAOCODE_UPDATE_URL` 测试 |
+| 设置页显示“此版本的 BaoCode 没有可用的更新源。” | 这是 debug 构建（未设置 `BAOCODE_UPDATE_URL`），或者是 Web 构建 | 用 release 构建；或者设置 `BAOCODE_UPDATE_URL` 测试 |
 | 一直显示“已是最新版本” | 清单版本不比当前高（build 号没递增）；清单里没有本平台的条目；CDN 还在返回旧清单 | 检查 `version` 和平台键；清 CDN 缓存 |
 | “检查更新失败：Invalid update manifest: …” | 清单格式有错；链接不在 baocode.dev 上 | 错误信息里会说明是哪个字段；用发布工具重新生成 |
 | “检查更新失败：HTTP 404 / 超时” | 清单没上传，或者网络不通 | `curl` 一下清单地址 |
@@ -534,7 +534,7 @@ flutter test test/update
 
 **改域名或下载页**：域名在 `UpdateUrlPolicy.domain`；清单地址在 `defaultManifestUrl`；下载页在 `ManualUpdateRequired.downloadPage`；发布工具里的链接前缀在 `tool/release_manifest.dart` 的 `_releasesBase`，远程服务端的在 `tool/build_remote_server.dart` 的 `_downloadsBase`；CI 的上传地址在 `.github/workflows/release.yml`；`updates_page` 和文案里也提到了 baocode.dev。改完后跑 `flutter test test/update`。
 
-**加一个平台**（比如 `windows-arm64`、Linux）：
+**加一个平台**（比如 `linux-armv7`）：
 
 1. 在 `installer_io.dart` 的 `platformUpdates()` 里返回新的平台键和对应的 `UpdateInstaller`。
 2. 在发布工具里加对应的参数，并加进 `missing` 检查用的平台集合。
