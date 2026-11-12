@@ -195,7 +195,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          pacman -Syu --noconfirm --needed git curl jq dart
+          pacman --disable-sandbox -Syu --noconfirm --needed git curl jq dart
 
       # fetch-depth 0 also fetches every tag, including arch-source-<version>
       # for an explicit version.
@@ -439,7 +439,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          pacman -Syu --noconfirm --needed git namcap
+          pacman --disable-sandbox -Syu --noconfirm --needed git namcap
 
       - uses: actions/checkout@v5
         with:
@@ -468,7 +468,7 @@ jobs:
           if [[ -n ${makedepends+x} ]]; then
             build_deps+=("${makedepends[@]}")
           fi
-          pacman -S --noconfirm --needed --asdeps "${build_deps[@]}"
+          pacman --disable-sandbox -S --noconfirm --needed --asdeps "${build_deps[@]}"
           runuser -u builder -- env HOME=/home/builder makepkg --noconfirm
 
       - name: Validate the package
@@ -745,7 +745,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          pacman -Syu --noconfirm --needed git openssh
+          pacman --disable-sandbox -Syu --noconfirm --needed git openssh
 
       - uses: actions/checkout@v5
         with:
