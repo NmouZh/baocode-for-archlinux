@@ -3,7 +3,7 @@
 BaoCode 的自动检查与升级：怎么工作、服务端约定、签名、出问题怎么查，以及以后改代码时要注意什么。版本号怎么定、怎么发版、CI 和 Cloudflare 怎么配，见 [release.md](release.md)。
 
 - 更新服务器：`https://dl.baocode.dev`（Cloudflare R2；`baocode.dev/releases/*` 302 到这里）
-- 平台：macOS（Apple silicon 和 Intel 各一个包）、Windows（x64）
+- 平台：macOS（Apple silicon 和 Intel 各一个包）、Windows（x64）、Linux（Arch；本 fork 的 GitHub Releases，见 [arch-linux.md](arch-linux.md)）
 - 代码：`lib/update/`，测试：`test/update/`，发布工具：`tool/release_manifest.dart`
 
 ## 目录
@@ -31,6 +31,7 @@ BaoCode 的自动检查与升级：怎么工作、服务端约定、签名、出
 | 检查、下载、校验、安装（应用侧） | 已完成，单元测试覆盖 |
 | Windows 静默安装并自动重启 | 已完成；`tool/baocode.iss` 已支持 `/RELAUNCH` |
 | macOS 替换 .app 并自动重启 | 已完成 |
+| Linux（Arch）更新 | 已完成：本 fork 的 GitHub Releases + `pkexec pacman -U --noconfirm`，见 [arch-linux.md](arch-linux.md) |
 | 发布工具（签名 + 生成清单） | 已完成：`tool/release_manifest.dart` |
 | 版本号工具 | 已完成：`tool/bump_version.dart` |
 | CI 构建与发布 | 已完成：`.github/workflows/release.yml`，见 [release.md](release.md) |
@@ -75,7 +76,7 @@ BaoCode 的自动检查与升级：怎么工作、服务端约定、签名、出
 - **强制更新**：忽略“跳过”，每次自动检查都会再提示一次。
 - **没装上时提示**：启动安装程序后，退出前把目标版本记到 `state/storage.json` 的 `update.installingVersion`。下次启动时如果当前版本仍低于它（UAC 被拒、签名策略不让提权、文件被占用、安装还没完成就打开了旧版本等），主窗口弹出警告“BaoCode X 没有装上，当前仍是 Y”，按钮有“打开下载页”和“查看安装日志”。只提示一次。
 - **安装前确认**：点“立即重启更新”后，走的是和平时退出完全一样的流程：有未保存的文件就先问保存，有正在运行的 agent 或终端就先确认。用户取消退出，就**什么都不装**，下载好的安装包留着，下次点直接用。
-- **只有 release 构建自动更新**：`flutter run` 起的 debug 构建默认不更新（它会替换掉 build 目录里的应用）。设置页会显示“此版本的 BaoCode 不支持自动更新”。设置了 `BAOCODE_UPDATE_URL` 的情况除外，见第 8 节。
+- **只有 release 构建自动更新**：`flutter run` 起的 debug 构建默认不更新（它会替换掉 build 目录里的应用）。设置页会显示“此版本的 BaoCode 不支持自动更新”。设置了 `BAOCODE_UPDATE_URL` 的情况除外，见第 8 节。Linux 的更新源与手动兜底见 [arch-linux.md](arch-linux.md)。
 
 ---
 
@@ -91,7 +92,9 @@ BaoCode 的自动检查与升级：怎么工作、服务端约定、签名、出
 | `lib/update/update_settings.dart` | `UpdateMode`（读取 `update.mode`） | 纯 Dart |
 | `lib/update/update_service.dart` | `UpdateService`：定时检查、下载、跳过、强制更新、退出时启动安装；定义各个接口 | Flutter foundation |
 | `lib/update/update_io.dart` | `IoUpdateBackend`：拉取清单、断点续传下载、校验、清理旧版本 | dart:io |
-| `lib/update/installer_io.dart` | `WindowsUpdateInstaller`、`MacUpdateInstaller`、`platformUpdates()` | dart:io |
+| `lib/update/installer_io.dart` | `WindowsUpdateInstaller`、`MacUpdateInstaller`、`LinuxUpdateInstaller`、`platformUpdates()` | dart:io |
+| `lib/update/arch_release.dart` | Arch 更新策略：Release/资产选择、pacman 归属、代理候选与 pacman 命令（纯逻辑） | 纯 Dart |
+| `lib/update/update_github.dart` | `GitHubUpdateBackend`：拉取本 fork 的 Releases、合成清单、按大小与 digest 下载校验 | dart:io |
 | `lib/update/installer_stub.dart` | 没有 dart:io 时（web）的空实现 | — |
 | `lib/update/update_platform.dart` | 按平台从上面两个里选一个 | — |
 | `lib/update/update_controller.dart` | `UpdateController`：通知、“检查更新”、“立即重启更新” | UI 粘合层 |
@@ -106,8 +109,9 @@ BaoCode 的自动检查与升级：怎么工作、服务端约定、签名、出
 ```
 main.dart  _startUpdates()
   └─ platformUpdates()                    ← installer_io.dart，按平台挑选实现
-       ├─ IoUpdateBackend                 ← 网络 + updates/ 目录（UpdateBackend 接口）
-       └─ Windows/MacUpdateInstaller      ← 安装（UpdateInstaller 接口）
+       ├─ GitHubUpdateBackend             ← Linux（Arch）：本 fork 的 Releases（update_github.dart）
+       ├─ IoUpdateBackend                 ← 其他平台或 BAOCODE_UPDATE_URL：清单 + updates/ 目录
+       └─ Windows/Mac/LinuxUpdateInstaller ← 安装（UpdateInstaller 接口）
   └─ UpdateService(backend, installer, mode, store)   ← 状态机、定时器
   └─ UpdateController(service, quit, openUrl)         ← 交给 AppSettings.updates
 
@@ -123,8 +127,8 @@ main.dart onExitRequested
 
 | 接口 | 生产实现 | 负责 |
 | --- | --- | --- |
-| `UpdateBackend` | `IoUpdateBackend` | `fetchManifest`、`download`、`cleanUp` |
-| `UpdateInstaller` / `PreparedUpdate` | `WindowsUpdateInstaller`、`MacUpdateInstaller` | `prepare`（准备）、`launch`（启动） |
+| `UpdateBackend` | `IoUpdateBackend`；Linux 上为 `GitHubUpdateBackend` | `fetchManifest`、`download`、`cleanUp` |
+| `UpdateInstaller` / `PreparedUpdate` | `WindowsUpdateInstaller`、`MacUpdateInstaller`、`LinuxUpdateInstaller` | `prepare`（准备）、`launch`（启动） |
 | `UpdateProcesses` | `IoUpdateProcesses` | 运行和启动外部程序（ditto、codesign、reg、Setup…） |
 | `UpdateStore` | `GlobalUpdateStore` | 跳过的版本、上次检查时间 |
 
@@ -463,7 +467,7 @@ flutter test test/update
 
 | 环境变量 | 作用 |
 | --- | --- |
-| `BAOCODE_UPDATE_URL` | 改用另一个清单地址；同源的下载链接也会被接受；debug 构建也启用更新 |
+| `BAOCODE_UPDATE_URL` | 改用另一个清单地址；同源的下载链接也会被接受；debug 构建也启用更新；Linux 上优先于本 fork 的 Releases，见 [arch-linux.md](arch-linux.md) |
 | `BAOCODE_UPDATE_SIGNING_KEY` | 发布工具使用的私钥文件路径 |
 
 `updates/` 没有加进 `DataDirectory.items`：迁移数据目录时不会复制它，丢了也只是重新下载一次。
@@ -476,7 +480,7 @@ flutter test test/update
 
 | 现象 | 可能原因 | 处理 |
 | --- | --- | --- |
-| 设置页显示“此版本的 BaoCode 不支持自动更新” | 这是 debug 构建，或者不是 macOS / Windows | 用 release 构建；或者设置 `BAOCODE_UPDATE_URL` 测试 |
+| 设置页显示“此版本的 BaoCode 不支持自动更新” | 这是 debug 构建，或者平台没有更新支持 | 用 release 构建；Linux（Arch）的更新源见 [arch-linux.md](arch-linux.md)；或者设置 `BAOCODE_UPDATE_URL` 测试 |
 | 一直显示“已是最新版本” | 清单版本不比当前高（build 号没递增）；清单里没有本平台的条目；CDN 还在返回旧清单 | 检查 `version` 和平台键；清 CDN 缓存 |
 | “检查更新失败：Invalid update manifest: …” | 清单格式有错；链接不在 baocode.dev 上 | 错误信息里会说明是哪个字段；用发布工具重新生成 |
 | “检查更新失败：HTTP 404 / 超时” | 清单没上传，或者网络不通 | `curl` 一下清单地址 |

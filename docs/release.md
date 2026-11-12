@@ -5,6 +5,7 @@ BaoCode 的版本号怎么定、一个版本怎么发出去、发到哪里、已
 - 下载与更新：`https://dl.baocode.dev`（Cloudflare R2）
 - 官网：`https://baocode.dev`（Cloudflare Worker `baocode` 的静态资源，`site/`；Workers Builds 从 GitHub 部署）
 - 构建与发布：GitHub Actions，`.github/workflows/release.yml`
+- Arch Linux：本 fork 的 `.github/workflows/arch-mirror.yml` 另行镜像上游 Release 并构建 Arch 包，见 [arch-linux.md](arch-linux.md)
 - 工具：`tool/bump_version.dart`、`tool/build_macos.dart`、`tool/build_windows.dart`、`tool/build_remote_server.dart`、`tool/release_manifest.dart`
 
 ## 目录
@@ -177,6 +178,8 @@ dart run tool/build_macos.dart --remote-release              # macOS 同理
 | `windows` | Windows（x64 在 `windows-latest`，arm64 在 `windows-11-arm`） | 装 Inno Setup → `tool/build_windows.dart --build-only --arch <x64\|arm64>` 构建 → 等 `remote` 产物传上来 → `--skip-build --remote-built` 放进 `servers.json`、打安装包。Flutter 只能给本机架构构建，所以 arm64 在 Arm 机器上编；Flutter 的 Windows 压缩包里是 x64 的 Dart，arm64 改为按标签 clone Flutter。arm64 没有打过补丁的引擎（`tool/engine/`），用 Flutter 自带的；OpenSSH 用 `OpenSSH-ARM64.zip`。安装包 `BaoCode-<版本>-setup-arm64.exe`，和 x64 同一个 AppId，互相覆盖安装 |
 | `publish` | Ubuntu | 汇总产物 → 用更新私钥签 `latest.json`（`tool/release_manifest.dart`，带上 dmg 给网站用）→ 上传远程服务端 → 上传安装包 → 按清单里的链接确认 CDN 给出的文件大小对 → **最后**上传 `latest.json` → 建 GitHub Release（附两个 dmg 和 exe；重新发布时先删掉旧的） |
 
+Arch 包不经过 `release.yml`：本 fork 的 `.github/workflows/arch-mirror.yml` 按每日 cron 或手动触发，把上游 Release 镜像成四个 Arch 包（源码/二进制 × x86_64/aarch64）。安装、AUR 与 Linux 更新见 [arch-linux.md](arch-linux.md)。
+
 几个设计上的考虑：
 
 - **`latest.json` 最后传**：应用一读到新清单就会去下载，安装包必须先就位。
@@ -215,6 +218,7 @@ releases/
 - **旧版本一直保留**：下载页只链最新版，但 `remote/` 下旧目录还有旧版本的用户在用，删了他们连不上远程主机。
 - **`latest.json` 缓存 5 分钟**：Cloudflare 默认不缓存 `.json`，每次都回源到 R2（算一次读取，每月 1000 万次免费）；浏览器和中间代理最多缓存 5 分钟。
 - 清单格式、链接规则见 [auto-update.md 第 5 节](auto-update.md#5-服务端约定)。
+- **Arch 包不在这里**：四个 Arch 包只作为本 fork GitHub Release 的资产发布，不进入 R2。见 [arch-linux.md](arch-linux.md)。
 
 ## 6. 更新的数据流
 
@@ -236,6 +240,8 @@ releases/
 6. 新版本启动时清理 `updates/` 里旧版本的下载。
 
 设置和对话放在数据目录里，不在安装目录里，更新不会动它们。
+
+**Linux（Arch）例外**：Arch 包不读 `latest.json`，而是检查本 fork 的 GitHub Releases，并用 `pkexec pacman -U --noconfirm` 安装；信任模型与手动兜底见 [arch-linux.md](arch-linux.md)。macOS 与 Windows 仍是上面的签名清单流程。
 
 **官网**（首页和 `baocode.dev/download`，`site/site.js`）：浏览器读同一份 `latest.json`，按其中的 `downloads` 换上版本号、两个 dmg 和 Windows 安装包的链接（带哈希）和大小。下载页的 macOS 卡片有 Apple silicon 和 Intel 两个按钮，默认突出 Apple silicon；Chromium 系浏览器能报出处理器架构，Intel Mac 上会改为突出 Intel（`site/download.js`）。需要 R2 的 CORS 允许 `https://baocode.dev`（见 7.1）。读不到时显示页面里写死的版本；页面里的下载链接本身写的是 `/dl/windows`、`/dl/windows-arm64`、`/dl/macos-arm64`、`/dl/macos-x64`（Arm64 的按钮先隐藏，`site.js` 读到清单里有 `windows-arm64` 才显示），由 Worker（`site-worker/index.js`，只接管 `/dl/*`）按当时的 `latest.json` 302 到对应安装包，所以脚本没跑完、被拦或页面被缓存时下到的也是最新版，发版不用改页面里的链接。
 
@@ -340,6 +346,8 @@ releases/
 ## 9. 不用 CI，手动发布
 
 CI 不可用时的备用办法，步骤和 CI 一样：
+
+Arch 包的构建、AUR 推送与手动回退不在下面的上游发布流程里，见 [arch-linux.md](arch-linux.md)。
 
 ```sh
 # macOS 上：先把四份远程服务端都编好（x64 的 Dart SDK 见 docs/ssh-remote.md 9.1）

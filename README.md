@@ -43,8 +43,33 @@ VS Code and Cursor are built on Electron: each window is a web page, and every c
 
 ## Requirements
 
-- macOS 12 or later (Apple silicon or Intel, one download each), Windows 10 or later (x64), or Linux: Ubuntu 20.04 or later and other Debian-based distributions (x64 or arm64, a .deb each).
+- macOS 12 or later (Apple silicon or Intel, one download each), Windows 10 or later (x64), or Linux: Ubuntu 20.04 or later and other Debian-based distributions (x64 or arm64, a .deb each); or Arch Linux, where this fork packages `baocode` and `baocode-bin` (see [docs/arch-linux.md](docs/arch-linux.md)).
 - [Claude Code](https://github.com/anthropics/claude-code), installed.
+
+## Arch Linux
+
+This fork packages BaoCode for Arch Linux. Two packages are built: `baocode-bin`, the prebuilt binary package, and `baocode`, the source package. They install the same files and conflict with each other, so install one.
+
+From this fork's [GitHub Releases](https://github.com/NmouZh/baocode-for-archlinux/releases), download the package for your architecture and install it with pacman:
+
+```sh
+sudo pacman -U baocode-bin-1.9.5-1-x86_64.pkg.tar.zst   # aarch64: baocode-bin-1.9.5-1-aarch64.pkg.tar.zst
+```
+
+Or, once the AUR package is published:
+
+```sh
+yay -S baocode-bin
+```
+
+The source package builds from this fork and downloads Flutter 3.47.5 and Rust 1.97.1; it is slow and not AUR-compliant:
+
+```sh
+cd packaging/baocode
+makepkg -si
+```
+
+On Linux, in-app updates check this fork's GitHub Releases and install with `pkexec pacman -U --noconfirm`; `BAOCODE_UPDATE_URL` overrides the update source. Packaging, updates, the trust model, `makepkg` proxies, and maintainer operations are in [docs/arch-linux.md](docs/arch-linux.md).
 
 ## Building from source
 
@@ -66,7 +91,7 @@ dart run tool/build_remote_server.dart    # the SSH remote server, for Linux x64
 
 The full test suite is slow; run the tests for what you changed, for example `flutter test test/update`.
 
-Releases are built and published by CI when a `v*` tag is pushed; versions, signing and where releases go are in [docs/release.md](docs/release.md). More in [docs/](docs): [auto-update](docs/auto-update.md), [SSH remote](docs/ssh-remote.md), [Windows](docs/windows.md) (some are in Chinese).
+Releases are built and published by CI when a `v*` tag is pushed; versions, signing and where releases go are in [docs/release.md](docs/release.md). More in [docs/](docs): [auto-update](docs/auto-update.md), [Arch Linux](docs/arch-linux.md), [SSH remote](docs/ssh-remote.md), [Windows](docs/windows.md) (some are in Chinese).
 
 ## Repository
 
