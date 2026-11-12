@@ -144,21 +144,22 @@ void main() {
       );
     });
 
-    test('a manual update opens the page its installer names', () async {
-      const fork =
-          'https://github.com/NmouZh/baocode-for-archlinux/releases';
-      final page = Uri.parse(fork);
+    test('a non-pacman install sends the user to the fork releases', () async {
+      const reason = 'BaoCode was not installed by pacman (nothing owns it)';
+      final page = Uri.parse(
+        'https://github.com/NmouZh/baocode-for-archlinux/releases',
+      );
       make(manifest: manifestOf('1.2.0'));
       installer.downloadPage = page;
       installer.prepareError = ManualUpdateRequired(
-        'not a pacman package',
+        reason,
         downloadPage: page,
       );
       await controller.checkNow(notifications, l10n);
       notifications.clearAll();
       await controller.restart(notifications, l10n);
       final note = notifications.notifications.single;
-      expect(note.message, l10n.updateManual('not a pacman package'));
+      expect(note.message, l10n.updateManual(reason));
       note.primary.single.run();
       expect(opened, [page]);
     });

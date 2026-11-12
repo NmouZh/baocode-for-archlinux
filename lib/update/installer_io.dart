@@ -595,9 +595,16 @@ class LinuxUpdateInstaller implements UpdateInstaller {
   @override
   Future<PreparedUpdate> prepare(String file, UpdateRelease release) async {
     final owner = await pacmanOwnership(processes, executable);
-    if (owner.packageName == null) {
+    final pkgname = owner.packageName;
+    if (pkgname == null) {
       throw ManualUpdateRequired(
         'BaoCode was not installed by pacman (${owner.error})',
+        downloadPage: linuxDownloadPage,
+      );
+    }
+    if (!_isPackageOf(p.basename(file), pkgname)) {
+      throw ManualUpdateRequired(
+        'The update is not the $pkgname package',
         downloadPage: linuxDownloadPage,
       );
     }
@@ -620,6 +627,23 @@ class LinuxUpdateInstaller implements UpdateInstaller {
       await processes.startDetached('/bin/bash', [script.path]);
     });
   }
+}
+
+/// Whether [fileName] is a package built from [pkgname] (rather than the
+/// other of the two, which pacman reports as conflicting): Arch names them
+/// `<pkgname>-<pkgver>-<pkgrel>-<arch>.pkg.tar.zst`, and a version starts
+/// with a digit, which keeps `baocode-bin-` from passing as `baocode-`.
+bool _isPackageOf(String fileName, String pkgname) {
+  const suffix = '.pkg.tar.zst';
+  final prefix = '$pkgname-';
+  if (!fileName.startsWith(prefix) || !fileName.endsWith(suffix)) {
+    return false;
+  }
+  final remainder = fileName.substring(
+    prefix.length,
+    fileName.length - suffix.length,
+  );
+  return RegExp(r'^\d').hasMatch(remainder);
 }
 
 /// The script that installs [package] with pacman as root (through

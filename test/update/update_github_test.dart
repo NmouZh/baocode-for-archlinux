@@ -6,6 +6,7 @@ import 'package:crypto/crypto.dart' as crypto;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:baocode/update/arch_release.dart' show forkReleasesUrl;
+import 'package:baocode/update/installer_io.dart';
 import 'package:baocode/update/update_github.dart';
 import 'package:baocode/update/update_manifest.dart';
 import 'package:baocode/update/update_service.dart';
@@ -61,6 +62,19 @@ class _Server {
 /// with 400.
 class _RealHttp extends HttpOverrides {}
 
+/// Runs nothing: pacman owns no package, and no process is started.
+class _NoPacman implements UpdateProcesses {
+  @override
+  Future<ProcessResult> run(String executable, List<String> arguments) async =>
+      ProcessResult(0, 1, '', 'error: No package owns ${arguments.last}');
+
+  @override
+  Future<void> startDetached(
+    String executable,
+    List<String> arguments,
+  ) async {}
+}
+
 String _route(Uri url) => url.path.substring(1);
 
 Map<String, Object?> _assetJson({
@@ -110,7 +124,7 @@ void main() {
   );
 
   GitHubUpdateBackend backendFor({
-    String packageName = 'baocode-bin',
+    String? packageName = 'baocode-bin',
     String arch = 'x86_64',
   }) => GitHubUpdateBackend(
     directory: directory.path,
@@ -266,6 +280,19 @@ void main() {
       expect(
         source.assetFor('linux-arm64')!.url,
         server.url('source-arm.pkg.tar.zst'),
+      );
+    });
+
+    test('a non-pacman install is offered the binary package', () async {
+      serveReleases([
+        _releaseJson(tag: 'v1.9.5', assets: [assetOf()]),
+      ]);
+      final manifest = await fetch(backendFor(packageName: null));
+      expect(manifest.version, AppVersion.parse('1.9.5'));
+      expect(manifest.platforms, ['linux-x64']);
+      expect(
+        manifest.assetFor('linux-x64')!.url,
+        server.url('baocode-bin-1.9.5-1-x86_64.pkg.tar.zst'),
       );
     });
 
@@ -561,6 +588,49 @@ void main() {
       expect(offer.release.version, AppVersion.parse('1.9.5'));
       expect(offer.release.platform, 'linux-x64');
       expect(service.status, UpdateStatus.available);
+    });
+
+    test('a non-pacman install is offered, then sent to the fork releases', () async {
+      final name = 'baocode-bin-1.9.5-1-x86_64.pkg.tar.zst';
+      server.files[name] = bytes;
+      serveReleases([
+        _releaseJson(tag: 'v1.9.5', assets: [assetOf()]),
+      ]);
+      final service = UpdateService(
+        current: AppVersion.parse('1.9.4'),
+        platform: 'linux-x64',
+        manifestUrl: Uri.parse(forkReleasesUrl),
+        backend: backendFor(packageName: null),
+        installer: LinuxUpdateInstaller(
+          executable: '/opt/baocode/baocode',
+          pid: 1,
+          updatesDirectory: directory.path,
+          processes: _NoPacman(),
+          pkexec: '/no/pkexec',
+        ),
+        mode: () => UpdateMode.manual,
+        store: MemoryUpdateStore(),
+      );
+
+      final result = await service.check(manual: true);
+      expect(result, isA<UpdateFound>());
+      expect(
+        (result as UpdateFound).offer.release.asset.fileName,
+        name,
+        reason: 'the binary package is offered when pacman owns nothing',
+      );
+      await expectLater(
+        service.prepare(),
+        throwsA(
+          isA<ManualUpdateRequired>().having(
+            (e) => e.downloadPage,
+            'page',
+            Uri.parse(
+              'https://github.com/NmouZh/baocode-for-archlinux/releases',
+            ),
+          ),
+        ),
+      );
     });
 
     test('a check still refuses an unsigned upstream manifest', () async {

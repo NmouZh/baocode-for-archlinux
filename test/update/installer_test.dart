@@ -189,6 +189,10 @@ void main() {
 
     late String packageFile;
 
+    final forkReleases = Uri.parse(
+      'https://github.com/NmouZh/baocode-for-archlinux/releases',
+    );
+
     setUp(() {
       final directory = Directory(p.join(temp.path, 'updates', '1.2.0'))
         ..createSync(recursive: true);
@@ -228,10 +232,15 @@ void main() {
 
     test('asks pacman which package owns the app', () async {
       for (final name in ['baocode', 'baocode-bin']) {
+        final assetFile = p.join(
+          p.dirname(packageFile),
+          '$name-1.2.0-1-x86_64.pkg.tar.zst',
+        );
+        File(assetFile).createSync();
         final processes = pacman(output: '$name\n');
         final update = await installerIn(
           processes,
-        ).prepare(packageFile, _release('linux-x64'));
+        ).prepare(assetFile, _release('linux-x64'));
         expect(processes.runs.single, ['pacman', '-Qoq', installPath]);
         expect(processes.started, isEmpty, reason: 'not before the app quits');
         await update.launch();
@@ -258,10 +267,40 @@ void main() {
           throwsA(
             isA<ManualUpdateRequired>()
                 .having((e) => e.reason, 'reason', contains(stderr.trim()))
-                .having((e) => e.downloadPage, 'page', linuxDownloadPage),
+                .having((e) => e.downloadPage, 'page', forkReleases),
           ),
         );
       }
+    });
+
+    test('refuses the other package\'s asset', () async {
+      // A baocode-bin download for an app the baocode package owns, and
+      // the other way around.
+      final binOwner = pacman(output: 'baocode\n');
+      await expectLater(
+        installerIn(binOwner).prepare(packageFile, _release('linux-x64')),
+        throwsA(
+          isA<ManualUpdateRequired>()
+              .having((e) => e.reason, 'reason', contains('baocode'))
+              .having((e) => e.downloadPage, 'page', forkReleases),
+        ),
+      );
+      final sourceFile = p.join(
+        p.dirname(packageFile),
+        'baocode-1.2.0-1-x86_64.pkg.tar.zst',
+      );
+      File(sourceFile).createSync();
+      final sourceOwner = pacman(output: 'baocode-bin\n');
+      await expectLater(
+        installerIn(sourceOwner).prepare(sourceFile, _release('linux-x64')),
+        throwsA(
+          isA<ManualUpdateRequired>().having(
+            (e) => e.downloadPage,
+            'page',
+            forkReleases,
+          ),
+        ),
+      );
     });
 
     test('no pkexec is a manual update too', () async {
