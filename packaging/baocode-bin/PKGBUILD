@@ -1,0 +1,61 @@
+# Maintainer: NmouZh <311303632+NmouZh@users.noreply.github.com>
+#
+# Binary package: installs the official upstream Linux release tarball, with
+# no compilation and no network access in build() or package(). The archives
+# and checksums come from the upstream GitHub release; the checksums are the
+# release assets' GitHub SHA-256 digests.
+pkgname=baocode-bin
+pkgver=1.9.5
+pkgrel=1
+pkgdesc='A desktop UI for Claude Code, with a fast IDE built in'
+arch=('x86_64' 'aarch64')
+url='https://github.com/NmouZh/baocode-for-archlinux'
+license=('GPL-3.0-only')
+depends=('glibc' 'gtk3' 'xz' 'util-linux' 'bash')
+provides=('baocode')
+conflicts=('baocode')
+options=('!strip' '!debug')
+source_x86_64=("https://github.com/baocode-dev/baocode/releases/download/v${pkgver}/BaoCode-${pkgver}-linux-amd64.tar.gz")
+source_aarch64=("https://github.com/baocode-dev/baocode/releases/download/v${pkgver}/BaoCode-${pkgver}-linux-arm64.tar.gz")
+sha256sums_x86_64=('ec6d2111f03e9290beb717b8fc84cef3aaef4adffaec6a3148d2a6e46f7d43f3')
+sha256sums_aarch64=('e2b0bb3387230477d2be90b0650ad63cc7fbb6304de64dd81e986dcce898aecb')
+
+package() {
+  # The upstream tarball holds ./baocode, ./baocode-browser-host, ./data/,
+  # ./lib/ and ./remote/ at its root. Extract it directly into /opt/baocode
+  # instead of copying $srcdir, which makepkg also populates with the
+  # PKGBUILD and any other sources.
+  local archive
+  case "$CARCH" in
+    aarch64) archive="BaoCode-${pkgver}-linux-arm64.tar.gz" ;;
+    # arch=() admits only x86_64 and aarch64.
+    *) archive="BaoCode-${pkgver}-linux-amd64.tar.gz" ;;
+  esac
+
+  install -d "$pkgdir/opt/baocode"
+  bsdtar -xf "$srcdir/$archive" -C "$pkgdir/opt/baocode"
+
+  install -d "$pkgdir/usr/bin"
+  cat > "$pkgdir/usr/bin/baocode" <<'EOF'
+#!/bin/sh
+exec /opt/baocode/baocode "$@"
+EOF
+  chmod 755 "$pkgdir/usr/bin/baocode"
+
+  install -d "$pkgdir/usr/share/applications"
+  cat > "$pkgdir/usr/share/applications/baocode.desktop" <<'EOF'
+[Desktop Entry]
+Name=BaoCode
+Comment=Desktop app for Claude Code
+Exec=baocode %U
+Icon=baocode
+Terminal=false
+Type=Application
+Categories=Development;
+StartupWMClass=dev.baocode.desktop
+EOF
+
+  # The bundle ships the app icon at exactly 128x128.
+  install -Dm644 "$srcdir/data/flutter_assets/assets/branding/app_icon.png" \
+    "$pkgdir/usr/share/icons/hicolor/128x128/apps/baocode.png"
+}
