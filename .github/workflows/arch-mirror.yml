@@ -105,30 +105,59 @@ jobs:
             git checkout -B main origin/main
             if ! git merge --no-ff -m "Merge upstream main" refs/remotes/upstream/main; then
               conflicts=$(git diff --name-only --diff-filter=U || true)
-              git merge --abort || true
-
-              run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
-              body=$(printf 'Merging upstream main into main failed.\n\n- Run: %s\n- Conflicted files:\n' "$run_url")
-              if [[ -n $conflicts ]]; then
-                while IFS= read -r file; do
-                  body+="- $file"$'\n'
-                done <<< "$conflicts"
-              else
-                body+="- (git merge failed without listing a conflict)"$'\n'
+              # A GitHub App installation token (GITHUB_TOKEN) needs the
+              # `workflows` permission to create or update files under
+              # .github/workflows/, and no workflow `permissions:` key can
+              # grant it (ADR-0002). Conflicts confined to that directory
+              # are resolved by keeping the fork's files below, not reported
+              # as a merge failure that needs a human.
+              only_workflows=true
+              if [[ -z $conflicts ]]; then
+                only_workflows=false
               fi
+              while IFS= read -r file; do
+                [[ $file == .github/workflows/* ]] || only_workflows=false
+              done <<< "$conflicts"
 
-              # One open issue per problem: a new run comments on it instead
-              # of opening another.
-              existing=$(gh issue list --state open --limit 100 --json number,title \
-                --jq '[.[] | select(.title == "[arch] 上游合并冲突") | .number] | first // empty')
-              if [[ -n $existing ]]; then
-                gh issue comment "$existing" --body "$body"
+              if [[ $only_workflows == true ]]; then
+                git restore --source=origin/main --staged --worktree -- .github/workflows
+                git commit --no-edit
               else
-                gh issue create --title '[arch] 上游合并冲突' \
-                  --label ready-for-human --body "$body"
+                git merge --abort || true
+
+                run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+                body=$(printf 'Merging upstream main into main failed.\n\n- Run: %s\n- Conflicted files:\n' "$run_url")
+                if [[ -n $conflicts ]]; then
+                  while IFS= read -r file; do
+                    body+="- $file"$'\n'
+                  done <<< "$conflicts"
+                else
+                  body+="- (git merge failed without listing a conflict)"$'\n'
+                fi
+
+                # One open issue per problem: a new run comments on it instead
+                # of opening another.
+                existing=$(gh issue list --state open --limit 100 --json number,title \
+                  --jq '[.[] | select(.title == "[arch] 上游合并冲突") | .number] | first // empty')
+                if [[ -n $existing ]]; then
+                  gh issue comment "$existing" --body "$body"
+                else
+                  gh issue create --title '[arch] 上游合并冲突' \
+                    --label ready-for-human --body "$body"
+                fi
+                echo "::error::Upstream merge conflicted; see the open issue"
+                exit 1
               fi
-              echo "::error::Upstream merge conflicted; see the open issue"
-              exit 1
+            fi
+
+            # The merge commit must not change .github/workflows/: GITHUB_TOKEN
+            # cannot push such a change (ADR-0002). Keep the fork's files, as
+            # they were on main before the merge, and fold that into the merge
+            # commit itself.
+            if ! git diff --quiet origin/main -- .github/workflows; then
+              git restore --source=origin/main --staged --worktree -- .github/workflows
+              echo "::notice::Kept the fork's .github/workflows/; GITHUB_TOKEN cannot push workflow changes"
+              git commit --amend --no-edit
             fi
             git push origin main
             source_commit=$(git rev-parse HEAD)

@@ -1,6 +1,6 @@
 # 术语表（Glossary）
 
-本文件定义 BaoCode Arch Linux 打包 fork 的领域词汇。英文是规范用词：issue 标题、commit、代码与测试名称优先使用英文词；中文是同一概念在中文文档里的对照译名。写出新概念前先查这里；如果词表没有它，先补词表再使用，不要临时发明近义词。相关架构决定见 [ADR-0001 镜像发布架构](docs/adr/0001-arch-mirror-releases.md)。
+本文件定义 BaoCode Arch Linux 打包 fork 的领域词汇。英文是规范用词：issue 标题、commit、代码与测试名称优先使用英文词；中文是同一概念在中文文档里的对照译名。写出新概念前先查这里；如果词表没有它，先补词表再使用，不要临时发明近义词。相关架构决定见 [ADR-0001 镜像发布架构](docs/adr/0001-arch-mirror-releases.md) 与 [ADR-0002 Fork 保留自己的 workflow 文件](docs/adr/0002-workflow-files-stay-with-the-fork.md)。
 
 | 英文规范用词 | 中文 | 定义（一句话） | 使用规则 |
 | --- | --- | --- | --- |
