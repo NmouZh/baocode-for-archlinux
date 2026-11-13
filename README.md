@@ -80,7 +80,7 @@ makepkg -si
 
 The proxy must reach GitHub and the Flutter and Rust download hosts.
 
-On Linux, in-app updates check this fork's GitHub Releases and install with `pkexec pacman -U --noconfirm`; `BAOCODE_UPDATE_URL` overrides the update source. Packaging, updates, the trust model, `makepkg` proxies, and maintainer operations are in [docs/arch-linux.md](docs/arch-linux.md).
+On Linux, the source package `baocode` updates in-app from this fork's GitHub Releases and installs with `pkexec pacman -U --noconfirm`; `BAOCODE_UPDATE_URL` overrides the update source. `baocode-bin` carries upstream's prebuilt binary, so update it with pacman/AUR instead. Packaging, updates, the trust model, `makepkg` proxies, and maintainer operations are in [docs/arch-linux.md](docs/arch-linux.md).
 
 ## Building from source
 

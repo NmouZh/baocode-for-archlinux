@@ -67,7 +67,9 @@ makepkg -si
 
 ## 应用内更新
 
-Linux 的更新源是本 fork 的 GitHub Releases，而不是上游的 `https://dl.baocode.dev/releases/latest.json`：
+应用内更新器只存在于源码包 `baocode`（从本 fork 构建）。`baocode-bin` 安装的是上游官方预编译应用，仍带上游旧的 Linux 更新逻辑，无法用应用内按钮更新 pacman 包；`baocode-bin` 用户请用 `pacman -U` 或 AUR 更新，或改装源码包以获得应用内更新。
+
+源码包的 Linux 更新源是本 fork 的 GitHub Releases，而不是上游的 `https://dl.baocode.dev/releases/latest.json`：
 
 - **Release 列表**：`https://api.github.com/repos/NmouZh/baocode-for-archlinux/releases`（后端请求时附加 `?per_page=20`）；API 请求同样先直连，网络失败、5xx 或返回的不是 JSON 时经 `https://gh-proxy.com/` 重试，4xx 不重试。内容解析成功后的语义问题（没有稳定版本、缺少对应资产等）不会重试，因为换路由拿到的内容相同。
 - **版本选择**：取语义版本最高的非 draft、非 prerelease Release，不依赖 GitHub 的 latest 标记；显式镜像的旧版本 Release 不会变成更新。

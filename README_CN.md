@@ -83,7 +83,7 @@ makepkg -si
 
 代理需能访问 GitHub 以及 Flutter、Rust 的下载地址。
 
-Linux 的应用内更新检查本 fork 的 GitHub Releases，并用 `pkexec pacman -U --noconfirm` 安装；`BAOCODE_UPDATE_URL` 可覆盖更新源。打包、更新、信任模型、`makepkg` 代理与维护者操作见 [docs/arch-linux.md](docs/arch-linux.md)。
+源码包 `baocode` 在 Linux 的应用内更新检查本 fork 的 GitHub Releases，并用 `pkexec pacman -U --noconfirm` 安装；`BAOCODE_UPDATE_URL` 可覆盖更新源。`baocode-bin` 是上游预编译二进制，请用 pacman/AUR 更新。打包、更新、信任模型、`makepkg` 代理与维护者操作见 [docs/arch-linux.md](docs/arch-linux.md)。
 
 ## 从源码构建
 
