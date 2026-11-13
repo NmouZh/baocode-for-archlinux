@@ -14,6 +14,7 @@ import '../images/image_tools.dart' show ImageTools;
 import '../kernel/agent_kernel.dart';
 import '../kernel/claude_code/claude_sdk_tools.dart';
 import '../kernel/kernel_registry.dart';
+import '../kernel/kernel_types.dart' show KernelOption;
 import '../kernel/queued_messages.dart';
 import '../link/chat_codec.dart';
 import '../link/link_platform.dart';
@@ -27,8 +28,8 @@ import 'bot_life.dart';
 import 'bot_pacer.dart';
 import 'bot_permissions.dart';
 import 'bot_prompt.dart';
+import '../workspace/session_tools.dart';
 import 'bot_tools.dart';
-import 'bot_world.dart';
 import 'bot_watch.dart';
 
 /// A bot's picture: its bytes, and their media type.
@@ -58,10 +59,6 @@ class Bots extends ChangeNotifier implements ClaudeSdkGate {
   /// The user's group chats with them: each bot's, in its one
   /// conversation with its chat with the user.
   late final BotGroups groups = BotGroups(this);
-
-  /// Their world: who wakes when ([BotWorld]); on with a model for it
-  /// picked.
-  late final BotWorld world = BotWorld(this)..decided = groups.decided;
 
   /// Where what the app keeps of them besides their files is: the agents
   /// each is told of.
@@ -171,6 +168,7 @@ class Bots extends ChangeNotifier implements ClaudeSdkGate {
     workspace.agentSetup = _setup;
     ClaudeSdkTools.gate = this;
     BotTools.register(this);
+    SessionTools.register(workspace);
     // The conversations kept from the last run listed first: else each
     // bot, finding none yet, would start another and go on in that.
     if (workspace.loading) await workspace.loaded;
@@ -178,6 +176,7 @@ class Bots extends ChangeNotifier implements ClaudeSdkGate {
     // Each with its conversation, for the phones to open from the first.
     _bots.forEach(threadFor);
     groups.start();
+    _dropWorld(root);
     workspace.addListener(_watch);
     _watch();
     _schedule();
@@ -189,12 +188,12 @@ class Bots extends ChangeNotifier implements ClaudeSdkGate {
   @override
   void dispose() {
     _disposed = true;
-    world.dispose();
     groups.dispose();
     if (_started) {
       workspace.removeListener(_watch);
       if (identical(ClaudeSdkTools.gate, this)) ClaudeSdkTools.gate = null;
       BotTools.unregister();
+      SessionTools.unregister();
       workspace.agentSetup = null;
       if (workspace.appFolderRoot == folders.root) {
         workspace.appFolderRoot = null;
@@ -441,24 +440,6 @@ class Bots extends ChangeNotifier implements ClaudeSdkGate {
     }
   }
 
-  /// The world's [note] to [bot], in its conversation with the user:
-  /// something on its mind, for it to write to them of, or not. Once it is
-  /// not answering; not with no phone to write to.
-  void reach(Bot bot, String note, {int tries = 0}) {
-    if (_disposed || !_hasPhone) return;
-    final thread = threadFor(bot);
-    if (thread.isOpen && thread.session.isStreaming) {
-      if (tries < 20) {
-        Timer(
-          const Duration(seconds: 30),
-          () => reach(byId(bot.id) ?? bot, note, tries: tries + 1),
-        );
-      }
-      return;
-    }
-    thread.session.send(ComposerMessage(text: botEventMessage(note)));
-  }
-
   /// A note of the app's to [bot], in its conversation.
   void _note(Bot bot, String text, {List<ImageAttachment> images = const []}) {
     final thread = threadOf(bot);
@@ -502,7 +483,6 @@ class Bots extends ChangeNotifier implements ClaudeSdkGate {
       .firstOrNull;
 
   AgentSetup? _setup(String path) => switch (botAt(path)) {
-    null when path == world.folder => _worldSetup(),
     final bot? => AgentSetup(
       workspace: () => KernelWorkspace(
         folders: const [],
@@ -548,29 +528,11 @@ class Bots extends ChangeNotifier implements ClaudeSdkGate {
     null => null,
   };
 
-  /// The world's conversation: its instructions its whole prompt, Read
-  /// and its own tool ([BotWorld.wakeTool]) its only ones, nothing asked.
-  AgentSetup _worldSetup() => AgentSetup(
-    workspace: () => KernelWorkspace(
-      folders: const [],
-      instructions: world.instructions(),
-      ownPrompt: true,
-      tools: const ['Read'],
-      approvesAll: true,
-      queuedMessages: QueuedMessages.duringTurn,
-    ),
-    settings: {...settings, 'model': ?world.model},
-    kernel: KernelRegistry.claudeCode.id,
-  );
-
   // --- What a bot is offered -------------------------------------------------
 
   @override
   bool offersTool(String cwd, String tool) {
     final ability = BotTools.abilityOf(tool);
-    // The world's: its own alone; for no one else.
-    if (cwd == world.folder) return ability?.world ?? false;
-    if (ability?.world ?? false) return false;
     final bot = botAt(cwd);
     if (bot == null) return ability == null;
     if (ability != null) return ability.allows(bot);
@@ -587,11 +549,11 @@ class Bots extends ChangeNotifier implements ClaudeSdkGate {
   /// Not a bot's: there is no one at the computer to ask, its user on the
   /// phone.
   @override
-  bool asksUser(String cwd) => botAt(cwd) == null && cwd != world.folder;
+  bool asksUser(String cwd) => botAt(cwd) == null;
 
   @override
   bool tellsFeature(String cwd, String feature) => switch (botAt(cwd)) {
-    null => cwd != world.folder,
+    null => true,
     final bot => feature == 'browser' && bot.can(BotAbility.browser),
   };
 
@@ -816,6 +778,30 @@ class Bots extends ChangeNotifier implements ClaudeSdkGate {
 
   // --- Made, changed, deleted -----------------------------------------------
 
+  /// The models a new bot runs on, the first the computer offers: those
+  /// [newBotModel] fits (DeepSeek's), by id or name.
+  static final newBotModel = RegExp('deepseek', caseSensitive: false);
+
+  /// Of [options], the model a new bot runs on ([newBotModel]); none.
+  @visibleForTesting
+  static String? newBotModelOf(Iterable<KernelOption> options) => options
+      .where((o) => newBotModel.hasMatch(o.id) || newBotModel.hasMatch(o.label))
+      .firstOrNull
+      ?.id;
+
+  /// What a new bot runs on, of the models the bots' conversations offer
+  /// ([newBotModelOf]); none fits, the app's.
+  String? _newBotModel() {
+    for (final bot in _bots) {
+      final thread = threadOf(bot);
+      if (thread == null || !thread.isOpen) continue;
+      if (thread.session.models?.options case final options?) {
+        if (newBotModelOf(options) case final model?) return model;
+      }
+    }
+    return null;
+  }
+
   /// [id]'s bot changed as given, or a new one (no [id]).
   Bot save({
     String? id,
@@ -854,6 +840,7 @@ class Bots extends ChangeNotifier implements ClaudeSdkGate {
         created: _clock(),
         chatOnly: chatOnly ?? false,
         writesFirst: writesFirst ?? true,
+        model: _newBotModel(),
       );
       _writeBot(bot);
       _bots.add(bot);
@@ -1012,6 +999,20 @@ class Bots extends ChangeNotifier implements ClaudeSdkGate {
       id = 'b$now-$n';
     }
     return id;
+  }
+
+  /// Where the bots' world had its conversation, when there was one to
+  /// say who answers in a group: what is left of it gone.
+  void _dropWorld(String root) {
+    final path = p.join(root, 'world');
+    final threads = [
+      for (final thread in workspace.threads)
+        if (thread.project.path == path) thread,
+    ];
+    if (threads.isEmpty && !folders.folders().contains(path)) return;
+    if (threads.isNotEmpty) workspace.deleteAll(threads);
+    folders.delete(path);
+    unawaited(forgetSessions(path));
   }
 
   /// Deletes [id]'s bot, its conversation and memory: not the assistant's.
@@ -1241,12 +1242,10 @@ class Bots extends ChangeNotifier implements ClaudeSdkGate {
             if (item.images.isNotEmpty) chinese ? '[图片]' : '[picture]',
           ].join(' ');
           live(bot, place: privatePlace, who: userName, text: text);
-          _toWorld(bot, text);
-          world.heardUser();
+          heardUser();
         case AssistantTextItem(:final text):
           final says = BotLife.saysOf(text);
           live(bot, place: privatePlace, who: bot.name, text: says, mine: true);
-          _toWorld(bot, says);
         // Sent from a group's turn.
         case final ToolCallItem item when ChatCodec.botSentToUser(item) != null:
           final says = [
@@ -1254,19 +1253,33 @@ class Bots extends ChangeNotifier implements ClaudeSdkGate {
             if (item.images.isNotEmpty) chinese ? '[图片]' : '[picture]',
           ].where((t) => t.isNotEmpty).join(' ');
           live(bot, place: privatePlace, who: bot.name, text: says, mine: true);
-          _toWorld(bot, says);
         default:
       }
     }
     return count;
   }
 
-  /// Something said in [bot]'s chat with the user ([text]), just put in
-  /// its timeline: where, told the world.
-  void _toWorld(Bot bot, String text) {
-    if (text.trim().isEmpty) return;
-    final path = timelineFile(bot);
-    world.private(bot, path, _readText(path).trimRight().split('\n').length);
+  /// When the user last said something, in a group or in private.
+  DateTime? _userSaidAt;
+
+  /// The user said something: what they asked for (a word in private) is
+  /// theirs for a while ([askedWithin]).
+  void heardUser() => _userSaidAt = now;
+
+  /// How long after the user last spoke a bot may write to them in
+  /// private as they asked, whatever it may of writing first.
+  static const askedWithin = Duration(minutes: 10);
+
+  /// Why [bot] may not write to the user in private now, from a group's
+  /// turn ([ChatCodec.botSendTool]); none when it may: as they asked (they
+  /// spoke lately), or first, unless they turned that off
+  /// ([Bot.writesFirst]).
+  String? sendsPrivately(Bot bot) {
+    final said = _userSaidAt;
+    if (said != null && now.difference(said) <= askedWithin) return null;
+    return bot.writesFirst
+        ? null
+        : 'the user turned off ${bot.name} writing to them first';
   }
 
   // --- The user ---------------------------------------------------------

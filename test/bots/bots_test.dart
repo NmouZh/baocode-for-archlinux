@@ -15,6 +15,7 @@ import 'package:baocode/bots/bots.dart';
 import 'package:baocode/chat/chat_models.dart';
 import 'package:baocode/chat/chat_session.dart';
 import 'package:baocode/kernel/agent_kernel.dart';
+import 'package:baocode/kernel/kernel_types.dart';
 import 'package:baocode/kernel/queued_messages.dart';
 import 'package:baocode/link/chat_codec.dart';
 import 'package:baocode/kernel/claude_code/claude_code_kernel.dart';
@@ -24,11 +25,28 @@ import 'package:baocode/kernel/claude_code/mock_claude_code_transport.dart';
 import 'package:baocode/workspace/preference_store.dart';
 import 'package:baocode/images/image_tools.dart';
 import 'package:baocode/workspace/workspace.dart';
+import 'package:bao_link/bao_link.dart' show linkGroupLeastPasses;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 
 void main() {
+  test('a new bot runs on the first DeepSeek model offered; none, the '
+      "app's", () {
+    KernelOption model(String id, String label) =>
+        KernelOption(id, label, Icons.circle, '');
+    expect(
+      Bots.newBotModelOf([
+        model('sonnet', 'Sonnet'),
+        model('@ds/deepseek-v4', 'DeepSeek V4'),
+        model('@ds/deepseek-chat', 'DeepSeek Chat'),
+      ]),
+      '@ds/deepseek-v4',
+    );
+    expect(Bots.newBotModelOf([model('@x/m1', 'DeepSeek R1')]), '@x/m1');
+    expect(Bots.newBotModelOf([model('sonnet', 'Sonnet')]), isNull);
+  });
+
   group('BotSuggestions', () {
     List<String> notes(bool wanted, bool? told, {bool suggested = false}) =>
         BotSuggestions.notes(wanted: wanted, told: told, suggested: suggested);
@@ -1199,6 +1217,49 @@ void main() {
       expect((await call(mia, 'bot_list_bots', {}))['isError'], isTrue);
       expect(botInstructions(self, memory: ''), contains('<contacts>'));
       expect(botInstructions(mia, memory: ''), isNot(contains('<contacts>')));
+    });
+
+    test('the assistant looks after the groups: made, changed (who joins '
+        'and leaves, said there as its doing; its rules), deleted', () async {
+      final assistant = bots.bots.firstWhere((b) => b.assistant);
+      final mia = bots.save(name: 'Mia', identity: '', abilities: {});
+      final bo = bots.save(name: '阿包（同学）', identity: '', abilities: {});
+      final made = await call(assistant, 'bot_save_group', {
+        'name': '周末',
+        'add': ['Mia', '阿包'],
+        'rules': '只聊周末去哪',
+      });
+      expect(made['isError'], isNot(isTrue), reason: '$made');
+      final group = bots.groups.groups.single;
+      expect(group.members, [mia.id, bo.id]);
+      expect(group.rules, '只聊周末去哪');
+      final changed = await call(assistant, 'bot_save_group', {
+        'group': '周末',
+        'add': [assistant.name],
+        'remove': [mia.id],
+        'passes': 1,
+      });
+      expect(changed['isError'], isNot(isTrue), reason: '$changed');
+      final now = bots.groups.byId(group.id)!;
+      expect(now.members, [bo.id, assistant.id]);
+      expect(now.passes, linkGroupLeastPasses);
+      final notices = [
+        for (final m in bots.groups.messages(group.id))
+          if (m.notice) m.text,
+      ];
+      expect(notices, [
+        '${assistant.name} 邀请 Mia、阿包（同学） 加入了群聊',
+        '${assistant.name} 邀请 ${assistant.name} 加入了群聊',
+        '${assistant.name} 将 Mia 移出了群聊',
+      ]);
+      expect(
+        '${(await call(assistant, 'bot_list_groups', {}))['content']}',
+        contains('${group.id} | 周末 | 阿包（同学）, ${assistant.name}'),
+      );
+      // Not another's to do.
+      expect((await call(mia, 'bot_save_group', {}))['isError'], isTrue);
+      await call(assistant, 'bot_delete_group', {'group': group.id});
+      expect(bots.groups.groups, isEmpty);
     });
 
     test('the bots know who the user is, their picture to see', () async {
