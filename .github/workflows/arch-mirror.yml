@@ -676,6 +676,16 @@ jobs:
           fi
           install_asset=${install_asset:-$(basename "${packages[0]}")}
 
+          # The DMS plugin, when the packaged tree has it: a tarball users
+          # unpack into ~/.config/dms/plugins. Same name per version, so a
+          # rebuild replaces it.
+          plugin_tarball=
+          if [[ -d packaging/dms/baocodeQuestions ]]; then
+            plugin_tarball="$RUNNER_TEMP/baocodeQuestions-$VERSION.tar.gz"
+            tar --sort=name --owner=0 --group=0 --numeric-owner \
+              -czf "$plugin_tarball" -C packaging/dms baocodeQuestions
+          fi
+
           body=$RUNNER_TEMP/release-body.md
           {
             if [[ -s $notes_file ]]; then
@@ -692,6 +702,17 @@ jobs:
             printf 'sudo pacman -U %s\n' "$install_asset"
             printf 'yay -S baocode-bin\n'
             printf '```\n\n'
+            if [[ -n $plugin_tarball ]]; then
+              plugin_name=$(basename "$plugin_tarball")
+              printf '**DMS questions plugin (Arch)**\n\n'
+              printf 'Shows the questions a BaoCode agent is waiting on in a DMS popup and sends the answer back. Requires the `baocode` source package; `baocode-bin` is the upstream binary and does not include the app-side bridge.\n\n'
+              printf '```bash\n'
+              printf 'mkdir -p ~/.config/dms/plugins\n'
+              printf 'tar -xzf %s -C ~/.config/dms/plugins\n' "$plugin_name"
+              printf 'dms ipc call plugins enable baocodeQuestions\n'
+              printf '```\n\n'
+              printf -- '- `%s`\n\n' "$plugin_name"
+            fi
             printf 'Upstream release: https://github.com/baocode-dev/baocode/releases/tag/v%s\n' \
               "$VERSION"
           } > "$body"
@@ -723,8 +744,8 @@ jobs:
             # --clobber replaces only same-named assets. A forced rebuild
             # (new pkgrel) or an explicit-version re-mirror (new source
             # pkgver) would leave the old package names beside this run's,
-            # so the release must end up with exactly these four. Other
-            # assets are left alone.
+            # so the release must end up with exactly these four packages
+            # and this version's plugin tarball. Other assets are left alone.
             mapfile -t keep < <(
               for package in "${packages[@]}"; do
                 basename "$package"
@@ -734,23 +755,40 @@ jobs:
               gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" \
                 --jq '.assets[].name'
             )
+            plugin_name=
+            if [[ -n $plugin_tarball ]]; then
+              plugin_name=$(basename "$plugin_tarball")
+            fi
             for name in "${existing[@]}"; do
-              [[ $name == *.pkg.tar.zst ]] || continue
-              stale=true
-              for kept in "${keep[@]}"; do
-                if [[ $name == "$kept" ]]; then
-                  stale=false
-                  break
-                fi
-              done
+              stale=false
+              if [[ $name == *.pkg.tar.zst ]]; then
+                stale=true
+                for kept in "${keep[@]}"; do
+                  if [[ $name == "$kept" ]]; then
+                    stale=false
+                    break
+                  fi
+                done
+              elif [[ -n $plugin_name && $name == baocodeQuestions-*.tar.gz &&
+                $name != "$plugin_name" ]]; then
+                # An older version's plugin tarball.
+                stale=true
+              fi
               if $stale; then
                 gh release delete-asset "$TAG" "$name" --yes
               fi
             done
             gh release upload "$TAG" --clobber "${packages[@]}"
+            if [[ -n $plugin_tarball ]]; then
+              gh release upload "$TAG" --clobber "$plugin_tarball"
+            fi
           else
+            assets=("${packages[@]}")
+            if [[ -n $plugin_tarball ]]; then
+              assets+=("$plugin_tarball")
+            fi
             gh release create "$TAG" --title "BaoCode $VERSION" \
-              --notes-file "$body" "--latest=$latest" "${packages[@]}"
+              --notes-file "$body" "--latest=$latest" "${assets[@]}"
           fi
 
           {
