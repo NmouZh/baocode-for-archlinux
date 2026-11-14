@@ -156,6 +156,47 @@ bool isPackageAssetOf(String fileName, String pkgname) {
   return RegExp(r'^\d').hasMatch(remainder);
 }
 
+/// A package's Arch version: its pkgver and numeric pkgrel.
+class ArchPackageVersion {
+  const ArchPackageVersion({required this.pkgver, required this.pkgrel});
+
+  /// `1.9.6.r122.g9c5d062`.
+  final String pkgver;
+  final int pkgrel;
+
+  /// `1.9.6.r122.g9c5d062-2`, as pacman prints it.
+  String get text => '$pkgver-$pkgrel';
+}
+
+/// The version an Arch package asset name carries, for [pkgname] and
+/// [arch]; null when [fileName] is not such a package.
+ArchPackageVersion? archPackageVersionOf(
+  String fileName,
+  String pkgname,
+  String arch,
+) {
+  const extension = '.pkg.tar.zst';
+  final prefix = '$pkgname-';
+  final suffix = '-$arch$extension';
+  if (!isPackageAssetOf(fileName, pkgname) || !fileName.endsWith(suffix)) {
+    return null;
+  }
+  final remainder = fileName.substring(
+    prefix.length,
+    fileName.length - suffix.length,
+  );
+  final pkgrelSeparator = remainder.lastIndexOf('-');
+  if (pkgrelSeparator <= 0 || pkgrelSeparator == remainder.length - 1) {
+    return null;
+  }
+  final pkgrel = int.tryParse(remainder.substring(pkgrelSeparator + 1));
+  if (pkgrel == null || pkgrel < 1) return null;
+  return ArchPackageVersion(
+    pkgver: remainder.substring(0, pkgrelSeparator),
+    pkgrel: pkgrel,
+  );
+}
+
 /// The `.pkg.tar.zst` [release] asset built from [pkgname] for [arch], or
 /// null when the release has none.
 GitHubReleaseAsset? selectPackageAsset(
@@ -163,25 +204,137 @@ GitHubReleaseAsset? selectPackageAsset(
   String pkgname,
   String arch,
 ) {
-  final prefix = '$pkgname-';
-  final suffix = '-$arch.pkg.tar.zst';
   for (final asset in release.assets) {
-    final name = asset.name;
-    if (!isPackageAssetOf(name, pkgname)) continue;
-    if (!name.endsWith(suffix)) continue;
-    if (name.length <= prefix.length + suffix.length) continue;
-    final remainder = name.substring(
-      prefix.length,
-      name.length - suffix.length,
-    );
-    final pkgrelSeparator = remainder.lastIndexOf('-');
-    if (pkgrelSeparator <= 0 || pkgrelSeparator == remainder.length - 1) {
-      continue;
-    }
-    return asset;
+    if (archPackageVersionOf(asset.name, pkgname, arch) != null) return asset;
   }
   return null;
 }
+
+/// Arch's package version comparison, as `vercmp` makes it: negative when
+/// [a] is older, zero when they are equal, positive when [a] is newer.
+///
+/// The app's [AppVersion] cannot read Arch pkgver, and a rebuilt package
+/// moves pkgrel without moving the marketing version, so updates compare
+/// these here.
+int compareArchVersions(String a, String b) {
+  final (epochA, restA) = _splitEpoch(a);
+  final (epochB, restB) = _splitEpoch(b);
+  final byEpoch = epochA.compareTo(epochB);
+  if (byEpoch != 0) return byEpoch.sign;
+  final (verA, relA) = _splitPkgrel(restA);
+  final (verB, relB) = _splitPkgrel(restB);
+  final byVersion = _rpmVersionCompare(verA, verB);
+  if (byVersion != 0) return byVersion;
+  // vercmp compares pkgrels only when both have one.
+  if (relA == null || relB == null) return 0;
+  return _rpmVersionCompare(relA, relB);
+}
+
+(int, String) _splitEpoch(String version) {
+  final colon = version.indexOf(':');
+  if (colon > 0) {
+    final epoch = int.tryParse(version.substring(0, colon));
+    if (epoch != null) return (epoch, version.substring(colon + 1));
+  }
+  return (0, version);
+}
+
+(String, String?) _splitPkgrel(String version) {
+  final dash = version.lastIndexOf('-');
+  if (dash <= 0 || dash == version.length - 1) return (version, null);
+  return (version.substring(0, dash), version.substring(dash + 1));
+}
+
+/// pacman's rpmvercmp: alphanumeric segments compared left to right, and
+/// more separators between them newer; a trailing alpha segment older.
+int _rpmVersionCompare(String a, String b) {
+  if (a == b) return 0;
+  var one = 0;
+  var two = 0;
+  while (true) {
+    final separatorStartOne = one;
+    final separatorStartTwo = two;
+    while (one < a.length && !_isArchAlnum(a.codeUnitAt(one))) {
+      one++;
+    }
+    while (two < b.length && !_isArchAlnum(b.codeUnitAt(two))) {
+      two++;
+    }
+    final separatorsOne = one - separatorStartOne;
+    final separatorsTwo = two - separatorStartTwo;
+    if (separatorsOne != separatorsTwo) {
+      return separatorsOne < separatorsTwo ? -1 : 1;
+    }
+    if (one >= a.length || two >= b.length) break;
+
+    final segmentStartOne = one;
+    final segmentStartTwo = two;
+    final bool numeric;
+    if (_isArchDigit(a.codeUnitAt(segmentStartOne))) {
+      while (one < a.length && _isArchDigit(a.codeUnitAt(one))) {
+        one++;
+      }
+      while (two < b.length && _isArchDigit(b.codeUnitAt(two))) {
+        two++;
+      }
+      numeric = true;
+    } else {
+      while (one < a.length && _isArchAlpha(a.codeUnitAt(one))) {
+        one++;
+      }
+      while (two < b.length && _isArchAlpha(b.codeUnitAt(two))) {
+        two++;
+      }
+      numeric = false;
+    }
+    if (one == segmentStartOne) return -1;
+    // A numeric segment is newer than an alpha one (the second segment is
+    // empty when its kind differs).
+    if (two == segmentStartTwo) return numeric ? 1 : -1;
+
+    var segmentOne = a.substring(segmentStartOne, one);
+    var segmentTwo = b.substring(segmentStartTwo, two);
+    if (numeric) {
+      segmentOne = _stripLeadingZeros(segmentOne);
+      segmentTwo = _stripLeadingZeros(segmentTwo);
+      if (segmentOne.length != segmentTwo.length) {
+        return segmentOne.length > segmentTwo.length ? 1 : -1;
+      }
+    }
+    final order = segmentOne.compareTo(segmentTwo);
+    if (order != 0) return order < 0 ? -1 : 1;
+  }
+
+  final oneEnded = one >= a.length;
+  final twoEnded = two >= b.length;
+  if (oneEnded && twoEnded) return 0;
+  final oneChar = oneEnded ? -1 : a.codeUnitAt(one);
+  final twoChar = twoEnded ? -1 : b.codeUnitAt(two);
+  // A remaining alpha segment never beats an empty string; a remaining
+  // numeric one does.
+  if ((oneEnded && !_isArchAlpha(twoChar)) ||
+      (!oneEnded && _isArchAlpha(oneChar))) {
+    return -1;
+  }
+  return 1;
+}
+
+String _stripLeadingZeros(String text) {
+  var start = 0;
+  while (start < text.length && text.codeUnitAt(start) == 0x30) {
+    start++;
+  }
+  return start == 0 ? text : text.substring(start);
+}
+
+bool _isArchDigit(int codeUnit) => codeUnit >= 0x30 && codeUnit <= 0x39;
+
+bool _isArchAlpha(int codeUnit) =>
+    (codeUnit >= 0x41 && codeUnit <= 0x5a) ||
+    (codeUnit >= 0x61 && codeUnit <= 0x7a);
+
+bool _isArchAlnum(int codeUnit) =>
+    _isArchDigit(codeUnit) || _isArchAlpha(codeUnit);
 
 /// The package among pacman's `baocode` and `baocode-bin` that owns
 /// [executablePath], or null when neither does.

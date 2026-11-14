@@ -233,6 +233,71 @@ void main() {
     });
   });
 
+  group('package version', () {
+    test('reads pkgver and pkgrel from the asset name', () {
+      final version = archPackageVersionOf(
+        'baocode-1.9.6.r122.g9c5d062-2-x86_64.pkg.tar.zst',
+        'baocode',
+        'x86_64',
+      )!;
+      expect(version.pkgver, '1.9.6.r122.g9c5d062');
+      expect(version.pkgrel, 2);
+      expect(version.text, '1.9.6.r122.g9c5d062-2');
+    });
+
+    test('needs the exact package, architecture, and a pkgrel', () {
+      expect(
+        archPackageVersionOf(
+          'baocode-bin-1.9.5-1-x86_64.pkg.tar.zst',
+          'baocode',
+          'x86_64',
+        ),
+        isNull,
+      );
+      expect(
+        archPackageVersionOf(
+          'baocode-1.9.5-1-aarch64.pkg.tar.zst',
+          'baocode',
+          'x86_64',
+        ),
+        isNull,
+      );
+      expect(
+        archPackageVersionOf(
+          'baocode-1.9.5-x86_64.pkg.tar.zst',
+          'baocode',
+          'x86_64',
+        ),
+        isNull,
+      );
+    });
+  });
+
+  group('Arch version comparison', () {
+    test('orders pkgver and pkgrel as vercmp does', () {
+      expect(
+        compareArchVersions('1.9.6.r122.g9c5d062-2', '1.9.6.r105.g829f2af-1'),
+        1,
+      );
+      expect(compareArchVersions('1.9.6-2', '1.9.6-10'), -1);
+      expect(compareArchVersions('1.9.6.r1-1', '1.9.6-1'), 1);
+      expect(compareArchVersions('1.9.6-1', '1.9.6-1'), 0);
+      expect(compareArchVersions('1.9.6-2', '1.9.6'), 0);
+    });
+
+    test('compares epochs first', () {
+      expect(compareArchVersions('2:1.0-1', '1:9.0-1'), 1);
+      expect(compareArchVersions('1:1.0-1', '1.0-1'), 1);
+    });
+
+    test('trailing alpha is older, separated alpha newer', () {
+      expect(compareArchVersions('1.9.6a-1', '1.9.6-1'), -1);
+      expect(compareArchVersions('1.9.6.a-1', '1.9.6-1'), 1);
+      expect(compareArchVersions('1.9.6a-1', '1.9.6b-1'), -1);
+      expect(compareArchVersions('1.9.6-2', '1.9.6a-2'), 1);
+    });
+  });
+
   group('package file name', () {
     test('matches only the exact package name it was built from', () {
       expect(

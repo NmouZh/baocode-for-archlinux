@@ -52,12 +52,15 @@ class GitHubUpdateBackend
     required this.directory,
     required this.packageName,
     String? arch,
+    AppVersion? currentVersion,
+    this.installedVersion,
     Uri? releasesApiUrl,
     Uri Function(Uri direct)? proxyUrl,
     HttpClient Function()? client,
     this.userAgent = 'BaoCode',
     this.timeout = const Duration(seconds: 30),
   }) : arch = arch ?? _currentArch,
+       currentVersion = currentVersion ?? currentAppVersion,
        releasesApiUrl = releasesApiUrl ?? githubReleasesApiUrl,
        proxyUrl = proxyUrl ?? githubProxyUrl,
        _client = client ?? HttpClient.new;
@@ -68,6 +71,14 @@ class GitHubUpdateBackend
   /// The package pacman installed the app from: `baocode` or `baocode-bin`;
   /// null when neither does. Wired to pacman's ownership query elsewhere.
   final Future<String?> Function() packageName;
+
+  /// The version running. A package rebuilt under the same marketing version
+  /// is made newer than it: its pkgrel does not move the app's own version.
+  final AppVersion currentVersion;
+
+  /// The version (`pkgver-pkgrel`) pacman has for a package, or null when it
+  /// does not know it. Wired to `pacman -Q` elsewhere.
+  final Future<String?> Function(String packageName)? installedVersion;
 
   /// `x86_64` or `aarch64`: which package build this machine updates to.
   final String arch;
@@ -144,6 +155,32 @@ class GitHubUpdateBackend
     if (asset.size <= 0) {
       throw GitHubUpdateException('${asset.name} is empty');
     }
+    final package = archPackageVersionOf(asset.name, pkgname, machineArch);
+    if (package == null) {
+      throw GitHubUpdateException('${asset.name} has no package version');
+    }
+    final tagVersion = AppVersion.tryParse(latest.tag);
+    if (tagVersion == null) {
+      throw GitHubUpdateException('${latest.tag} is not a version');
+    }
+    // A rebuild keeps the marketing version and moves pkgrel; compare the
+    // package versions so it is still an update. Without pacman's answer
+    // (not installed by a package), offer it as before.
+    final installed = await installedVersion?.call(pkgname);
+    final newer =
+        installed == null || compareArchVersions(package.text, installed) > 0;
+    // The manifest's version is what UpdateService compares with the app's.
+    // A rebuild's marketing version is already the running one, so its
+    // pkgrel moves the build number past the app's.
+    final version = newer
+        ? AppVersion(
+            tagVersion.major,
+            tagVersion.minor,
+            tagVersion.patch,
+            preRelease: tagVersion.preRelease,
+            build: currentVersion.build + package.pkgrel,
+          )
+        : tagVersion;
     final sha256 = _digestHex(asset.digest);
     final platform = switch (machineArch) {
       'x86_64' => 'linux-x64',
@@ -151,7 +188,7 @@ class GitHubUpdateBackend
       _ => throw GitHubUpdateException('No update platform for "$machineArch"'),
     };
     return jsonEncode({
-      'version': latest.tag,
+      'version': '$version',
       if (latest.body.trim().isNotEmpty) 'notes': {'en': latest.body},
       'platforms': {
         platform: {

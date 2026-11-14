@@ -376,6 +376,21 @@ void main() {
       updated.dispose();
     });
 
+    test('a Linux install is recorded by its marketing version', () async {
+      final store = MemoryUpdateStore();
+      final service = serviceOf(
+        FakeBackend(manifestOf('1.2.0', platforms: ['linux-x64'])),
+        platform: 'linux-x64',
+        store: store,
+      );
+      await service.check(manual: true);
+      service.arm(await service.prepare());
+      expect(await service.launchArmed(), isTrue);
+      // A rebuilt package stays 1.2.0 in the app, so recording 1.2.0+...
+      // would report every successful rebuild unfinished.
+      expect(store.installingVersion, '1.2.0');
+    });
+
     test('an install that will not start keeps the app, and says so', () async {
       final installer = FakeInstaller()..launchError = Exception('no shell');
       final service = serviceOf(

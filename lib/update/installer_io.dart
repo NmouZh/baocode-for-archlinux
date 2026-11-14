@@ -110,6 +110,8 @@ UpdateBackend updateBackend({
         directory: updatesDirectory,
         packageName: () async =>
             (await pacmanOwnership(processes, executable)).packageName,
+        installedVersion: (packageName) =>
+            pacmanPackageVersion(processes, packageName),
         userAgent: userAgent,
       )
     : IoUpdateBackend(directory: updatesDirectory, userAgent: userAgent);
@@ -556,6 +558,28 @@ Future<PacmanOwnership> pacmanOwnership(
     );
   } on ProcessException catch (error) {
     return (packageName: null, error: error.message);
+  }
+}
+
+/// The version (`pkgver-pkgrel`) pacman has for [packageName], or null when
+/// it is not installed or pacman cannot say. Used to tell a rebuilt package
+/// (new pkgrel, same marketing version) from the one installed.
+@visibleForTesting
+Future<String?> pacmanPackageVersion(
+  UpdateProcesses processes,
+  String packageName,
+) async {
+  try {
+    final result = await processes.run('pacman', [
+      '-Q',
+      '--quiet',
+      packageName,
+    ]);
+    if (result.exitCode != 0) return null;
+    final version = '${result.stdout}'.trim();
+    return version.isEmpty ? null : version;
+  } on ProcessException {
+    return null;
   }
 }
 

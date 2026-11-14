@@ -567,8 +567,15 @@ class UpdateService extends ChangeNotifier {
     }
     // The next launch tells whether it got there (unfinishedInstall).
     if (version != null) {
+      // A Linux install moves pacman's package version, not the app's: keep
+      // the marketing version, so a rebuilt package that did get installed
+      // is not reported unfinished at the next launch. A newer upstream
+      // version still is.
+      final recorded = platform?.startsWith('linux') == true
+          ? AppVersion.parse(version.marketing)
+          : version;
       try {
-        await store.setInstallingVersion('$version');
+        await store.setInstallingVersion('$recorded');
       } on Object catch (error) {
         debugPrint('update: the install under way not kept: $error');
       }

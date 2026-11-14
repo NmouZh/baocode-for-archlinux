@@ -123,10 +123,16 @@ void main() {
   GitHubUpdateBackend backendFor({
     String? packageName = 'baocode-bin',
     String arch = 'x86_64',
+    String currentVersion = '1.9.5',
+    String? installedVersion,
   }) => GitHubUpdateBackend(
     directory: directory.path,
     packageName: () async => packageName,
     arch: arch,
+    currentVersion: AppVersion.parse(currentVersion),
+    installedVersion: installedVersion == null
+        ? null
+        : (_) async => installedVersion,
     releasesApiUrl: server.url('releases'),
     proxyUrl: server.proxyUrl,
     timeout: const Duration(seconds: 5),
@@ -177,7 +183,7 @@ void main() {
         text,
         policy: backend.manifestPolicy,
       );
-      expect(manifest.version, AppVersion.parse('1.9.5'));
+      expect(manifest.version, AppVersion.parse('1.9.5+1'));
       expect(manifest.platforms, ['linux-x64']);
       final asset = manifest.assetFor('linux-x64')!;
       expect(
@@ -203,7 +209,7 @@ void main() {
         _releaseJson(tag: 'v10.0.0', assets: [assetOf()], draft: true),
         _releaseJson(tag: 'nightly', assets: [assetOf()]),
       ]);
-      expect((await fetch()).version, AppVersion.parse('1.10.0'));
+      expect((await fetch()).version, AppVersion.parse('1.10.0+1'));
     });
 
     test('a direct 5xx is retried through gh-proxy.com', () async {
@@ -218,7 +224,7 @@ void main() {
         ),
       );
 
-      expect((await fetch()).version, AppVersion.parse('1.9.5'));
+      expect((await fetch()).version, AppVersion.parse('1.9.5+1'));
       expect(server.requests, [_route(direct), _route(proxied)]);
     });
 
@@ -236,7 +242,7 @@ void main() {
         ),
       );
 
-      expect((await fetch()).version, AppVersion.parse('1.9.5'));
+      expect((await fetch()).version, AppVersion.parse('1.9.5+1'));
       expect(server.requests, [_route(direct), _route(proxied)]);
     });
 
@@ -303,12 +309,57 @@ void main() {
         _releaseJson(tag: 'v1.9.5', assets: [assetOf()]),
       ]);
       final manifest = await fetch(backendFor(packageName: null));
-      expect(manifest.version, AppVersion.parse('1.9.5'));
+      expect(manifest.version, AppVersion.parse('1.9.5+1'));
       expect(manifest.platforms, ['linux-x64']);
       expect(
         manifest.assetFor('linux-x64')!.url,
         server.url('baocode-bin-1.9.5-1-x86_64.pkg.tar.zst'),
       );
+    });
+
+    test('a rebuilt package under the same version is an update', () async {
+      serveReleases([
+        _releaseJson(
+          tag: 'v1.9.5',
+          assets: [assetOf(name: 'baocode-bin-1.9.5-2-x86_64.pkg.tar.zst')],
+        ),
+      ]);
+      final manifest = await fetch(backendFor(installedVersion: '1.9.5-1'));
+      expect(manifest.version, AppVersion.parse('1.9.5+2'));
+      expect(
+        manifest.assetFor('linux-x64')!.url,
+        server.url('baocode-bin-1.9.5-2-x86_64.pkg.tar.zst'),
+      );
+    });
+
+    test('an installed package as new as the release is not one', () async {
+      serveReleases([
+        _releaseJson(
+          tag: 'v1.9.5',
+          assets: [assetOf(name: 'baocode-bin-1.9.5-2-x86_64.pkg.tar.zst')],
+        ),
+      ]);
+      final manifest = await fetch(backendFor(installedVersion: '1.9.5-2'));
+      expect(manifest.version, AppVersion.parse('1.9.5'));
+    });
+
+    test('a rebuilt source package is newer by pkgver and pkgrel', () async {
+      serveReleases([
+        _releaseJson(
+          tag: 'v1.9.5',
+          assets: [
+            assetOf(name: 'baocode-1.9.5.r122.g9c5d062-2-x86_64.pkg.tar.zst'),
+          ],
+        ),
+      ]);
+      final manifest = await fetch(
+        backendFor(
+          packageName: 'baocode',
+          installedVersion: '1.9.5.r105.g829f2af-1',
+        ),
+      );
+      expect(manifest.version, AppVersion.parse('1.9.5+2'));
+      expect(manifest.platforms, ['linux-x64']);
     });
 
     test('the other package is not taken for the installed one', () async {
@@ -445,14 +496,14 @@ void main() {
         path,
         p.join(
           directory.path,
-          '1.9.5',
+          '1.9.5+1',
           'baocode-bin-1.9.5-1-x86_64.pkg.tar.zst',
         ),
       );
       expect(await File(path).readAsBytes(), bytes);
       expect(progress.last, bytes.length);
       expect(files(), [
-        p.join('1.9.5', 'baocode-bin-1.9.5-1-x86_64.pkg.tar.zst'),
+        p.join('1.9.5+1', 'baocode-bin-1.9.5-1-x86_64.pkg.tar.zst'),
       ]);
     });
 
@@ -508,7 +559,7 @@ void main() {
       expect(await File(path).readAsBytes(), bytes);
       expect(progress.last, bytes.length);
       expect(server.requests, [_route(direct), _route(proxied)]);
-      expect(files(), [p.join('1.9.5', name)]);
+      expect(files(), [p.join('1.9.5+1', name)]);
     });
 
     test('both download routes corrupted is a verification failure', () async {
@@ -658,7 +709,7 @@ void main() {
       final result = await service.check(manual: true);
       expect(result, isA<UpdateFound>());
       final offer = (result as UpdateFound).offer;
-      expect(offer.release.version, AppVersion.parse('1.9.5'));
+      expect(offer.release.version, AppVersion.parse('1.9.5+1'));
       expect(offer.release.platform, 'linux-x64');
       expect(service.status, UpdateStatus.available);
     });
