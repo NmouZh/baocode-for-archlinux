@@ -10,7 +10,12 @@ Item {
     // Filled by PluginPopout, to close the popup.
     property var closePopout: null
 
-    width: parent ? parent.width : 560
+    // The popup's width (see the daemon's contentWidth); centered should a
+    // host hand a wider surface than asked for, never stretched edge to
+    // edge with its header over the bar.
+    width: parent ? Math.min(parent.width, 560) : 560
+    x: parent ? Math.max(0, (parent.width - width) / 2) : 0
+    implicitWidth: width
     implicitHeight: content.implicitHeight
 
     function focusFirst() {
@@ -18,8 +23,12 @@ Item {
             if (cards.count === 0)
                 return;
             var first = cards.itemAt(0);
-            if (first)
-                first.focusInput();
+            if (!first)
+                return;
+            // A question with options only has no field: its card takes the
+            // focus, so Enter still submits.
+            if (!first.focusInput())
+                first.forceActiveFocus();
         });
     }
 
@@ -113,6 +122,10 @@ Item {
             width: parent.width
             visible: cards.count > 0
             height: Math.min(cardsColumn.implicitHeight, 430)
+            // The popup's height is the panel's implicit height: without
+            // this the flickable would count as nothing and the popup
+            // would be too short for the cards.
+            implicitHeight: height
             contentWidth: width
             contentHeight: cardsColumn.implicitHeight
             clip: true

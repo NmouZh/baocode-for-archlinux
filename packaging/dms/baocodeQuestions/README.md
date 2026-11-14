@@ -37,7 +37,13 @@ Set DND in DMS to keep the popup from opening by itself; the pill still counts.
 - One card per request waiting. A request's questions are shown together and
   are answered together, as the kernel expects one answer per request.
 - Options, multi-select and free text; Enter submits the card when every
-  question has an answer, and moves to the next empty field otherwise.
+  question has an answer, and moves to the next empty field otherwise. For
+  a single-answer question an option and free text are alternatives:
+  picking one clears the other.
+- While loaded, the plugin touches `plugin` next to `state.json` every
+  10 seconds. The app reads that heartbeat and leaves out its own desktop
+  notification for a question this popup shows, so it is not announced
+  twice. A heartbeat 30 seconds old counts as gone: notifications return.
 - A submitted card is marked **已处理** and is never popped again. If the app
   does not stop waiting on it within 15 s, it shows **未送达** with a retry.
 - Answers are written whole (`state.json` style atomic replace), one at a

@@ -23,6 +23,19 @@ Rectangle {
     border.width: 1
     border.color: failed ? Theme.error : Theme.outlineVariant
     opacity: answered ? 0.72 : 1
+    // For a question with options only there is no field to focus: the
+    // card itself takes the keys, so Enter still submits.
+    focus: true
+
+    Keys.onPressed: event => {
+        if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+            if (card.ready)
+                card.submit();
+            else
+                card.focusNextEmpty();
+            event.accepted = true;
+        }
+    }
 
     function submit() {
         if (card.daemon && card.notice)
@@ -35,8 +48,8 @@ Rectangle {
     }
 
     function focusInput() {
-        if (questions.itemAt(0))
-            questions.itemAt(0).focusField();
+        var first = questions.itemAt(0);
+        return !!first && first.focusField();
     }
 
     function focusNextEmpty() {
@@ -294,7 +307,12 @@ Rectangle {
                         onTextEdited: {
                             if (!card.daemon || !card.notice)
                                 return;
-                            card.daemon.setText(card.notice.token, questionBlock.index, text);
+                            card.daemon.setText(
+                                card.notice.token,
+                                questionBlock.index,
+                                text,
+                                questionBlock.modelData.multiple
+                            );
                         }
 
                         onAccepted: {
@@ -332,7 +350,9 @@ Rectangle {
                     anchors.verticalCenter: parent.verticalCenter
                     text: card.failed
                         ? "回答没有送达 BaoCode，请重试"
-                        : card.answered ? "已提交，等待 BaoCode 接收…" : ""
+                        : card.answered
+                            ? "已提交，等待 BaoCode 接收…"
+                            : card.ready ? "" : "回答完所有问题后可提交"
                     font.pixelSize: Theme.fontSizeSmall
                     color: card.failed ? Theme.error : Theme.surfaceVariantText
                     elide: Text.ElideRight

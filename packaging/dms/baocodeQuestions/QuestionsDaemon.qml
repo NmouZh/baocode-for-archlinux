@@ -21,6 +21,10 @@ PluginComponent {
     readonly property string stateDir: root.runtimeDir !== "" ? root.runtimeDir + "/baocode/questions" : ""
     readonly property string statePath: root.stateDir !== "" ? root.stateDir + "/state.json" : ""
     readonly property string answerDir: root.stateDir !== "" ? root.stateDir + "/answers" : ""
+    // Touched while this plugin is loaded: the app skips its own
+    // notification for a question that pops here (see
+    // lib/notifications/dms_questions_io.dart).
+    readonly property string presencePath: root.stateDir !== "" ? root.stateDir + "/plugin" : ""
 
     // What the app published, one entry per request waiting: token, thread,
     // project, request, title, pop, at, questions[].
@@ -72,6 +76,28 @@ PluginComponent {
         repeat: true
         running: root.statePath !== ""
         onTriggered: stateView.reload()
+    }
+
+    // "I am here": rewritten every 10 seconds, and read by the app as a
+    // heartbeat (30 seconds is stale, from dms_questions_io.dart).
+    Process {
+        id: heartbeat
+        running: false
+        command: ["sh", "-c", "mkdir -p \"$(dirname \"$BAOCODE_PRESENCE\")\" && printf 1 > \"$BAOCODE_PRESENCE\""]
+        environment: ({
+            "BAOCODE_PRESENCE": root.presencePath
+        })
+    }
+
+    Timer {
+        interval: 10000
+        repeat: true
+        running: root.presencePath !== ""
+        triggeredOnStart: true
+        onTriggered: {
+            if (!heartbeat.running)
+                heartbeat.running = true;
+        }
     }
 
     function _readState(raw) {
@@ -225,6 +251,15 @@ PluginComponent {
         // for the top edge of the screen.
         var x = Math.round(screen.width / 2);
         var y = Math.round((screen.height - height) / 2);
+        // Never under the bar, whose texts would otherwise show through
+        // the popup's header line.
+        var bar = SettingsData.getPrimaryBarConfig();
+        if (bar && bar.position === SettingsData.Position.Top) {
+            var barBottom = Theme.barThickness(
+                bar.innerPadding ?? SettingsData.barInnerPaddingDefault, 1
+            ) + Theme.spacingM;
+            y = Math.max(y, Math.round(barBottom));
+        }
         popup.setTriggerPosition(x, y, 0, "center", screen, 0, 0, 4, null, null);
     }
 
@@ -269,28 +304,40 @@ PluginComponent {
         var d = root.draft(token);
         var current = root.picksFor(token, question);
         var next;
+        var text = d.text;
         if (multiple) {
             next = current.indexOf(label) >= 0
                 ? current.filter(function (picked) { return picked !== label; })
                 : current.concat([label]);
         } else {
             next = current.indexOf(label) >= 0 ? [] : [label];
+            if (next.length > 0) {
+                // One answer: the option replaces words typed as the other.
+                text = Object.assign({}, d.text);
+                text[question] = "";
+            }
         }
         var picks = Object.assign({}, d.picks);
         picks[question] = next;
         var updated = Object.assign({}, root.drafts);
-        updated[token] = { picks: picks, text: d.text };
+        updated[token] = { picks: picks, text: text };
         root.drafts = updated;
     }
 
-    function setText(token, question, value) {
+    function setText(token, question, value, multiple) {
         if (root.handled[token] && !root.failed[token])
             return;
         var d = root.draft(token);
         var text = Object.assign({}, d.text);
         text[question] = value;
+        var picks = d.picks;
+        if (!multiple && value.trim() !== "") {
+            // One answer: words of one's own replace the picked option.
+            picks = Object.assign({}, d.picks);
+            picks[question] = [];
+        }
         var updated = Object.assign({}, root.drafts);
-        updated[token] = { picks: d.picks, text: text };
+        updated[token] = { picks: picks, text: text };
         root.drafts = updated;
     }
 
