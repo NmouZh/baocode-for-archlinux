@@ -10,7 +10,7 @@
 
 ### 从 Releases 安装（baocode-bin）
 
-本 fork 的 Mirror release 只包含四个 Arch 包（源码/二进制 × x86_64/aarch64），不转发上游资产。下载页面是 [本 fork 的 Releases](https://github.com/NmouZh/baocode-for-archlinux/releases)。
+本 fork 的 Mirror release 包含四个 Arch 包（源码/二进制 × x86_64/aarch64）和一份 DMS 问题插件 `baocodeQuestions-<version>.tar.gz`，不转发上游资产。下载页面是 [本 fork 的 Releases](https://github.com/NmouZh/baocode-for-archlinux/releases)。
 
 x86_64 用预编译包：
 
@@ -65,6 +65,16 @@ makepkg -si
 
 `pkgver` 的含义：二进制包永远等于上游 Release 的营销版本（如 `1.9.5`）；源码包在合并提交领先上游 `v1.9.5` tag 时追加 `.r<N>.g<短 SHA>`（当前为 `1.9.5.r17.g54ebc20`，即领先 17 个提交）。`pkgrel` 只在打包内容变化时递增，`force_rebuild` 会把它加一。
 
+## DMS 问题插件（baocodeQuestions）
+
+每个 Mirror release 都附带 `baocodeQuestions-<version>.tar.gz`（由 workflow 从 `packaging/dms/` 打包）。它把 BaoCode agent 正在等待回答的问题显示为 DMS 弹窗，并允许直接在 DMS 里回答；需要 `baocode` 源码包（应用内的 bridge 只在源码包构建里），`baocode-bin` 是上游预编译应用，没有这一侧。
+
+```sh
+mkdir -p ~/.config/dms/plugins
+tar -xzf baocodeQuestions-1.9.6.tar.gz -C ~/.config/dms/plugins
+dms ipc call plugins enable baocodeQuestions
+```
+
 ## 应用内更新
 
 应用内更新器只存在于源码包 `baocode`（从本 fork 构建）。`baocode-bin` 安装的是上游官方预编译应用，仍带上游旧的 Linux 更新逻辑，无法用应用内按钮更新 pacman 包；`baocode-bin` 用户请用 `pacman -U` 或 AUR 更新，或改装源码包以获得应用内更新。
@@ -75,6 +85,7 @@ makepkg -si
 - **版本选择**：取语义版本最高的非 draft、非 prerelease Release，不依赖 GitHub 的 latest 标记；显式镜像的旧版本 Release 不会变成更新。
 - **包识别**：用 `pacman -Qoq /opt/baocode/baocode` 查询可执行文件归属。输出 `baocode` 或 `baocode-bin`，据此选择同名包的资产；架构映射为 `x86_64` 或 `aarch64`。
 - **资产名**：与安装包一致，例如 `baocode-bin-1.9.5-1-x86_64.pkg.tar.zst`、`baocode-bin-1.9.5-1-aarch64.pkg.tar.zst`、`baocode-1.9.5.r17.g54ebc20-1-x86_64.pkg.tar.zst`、`baocode-1.9.5.r17.g54ebc20-1-aarch64.pkg.tar.zst`。
+- **重建包也是更新**：用 `pacman -Q --quiet <包名>` 查询已装的 `pkgver-pkgrel`，与资产名里的包版本按 pacman 的版本规则（epoch、pkgver、pkgrel）比较，而不是只比较 Release tag。`force_rebuild` 在同一 tag 下把 `pkgrel` 加一，应用仍会把它当成更新：清单版本由上游营销版本与 `当前构建号 + pkgrel` 合成，比正在运行的版本大，安装后应用版本随之推进。已装的包版本不比资产旧时不提示更新。
 - **下载**：先直连；网络错误、5xx 或校验失败（大小或 SHA-256 不符）时对同一 URL 加 `https://gh-proxy.com/` 前缀重试，4xx 不重试。每次尝试都重写 `.part` 文件；下载按 GitHub API 给出的资产大小与 `sha256:<hex>` digest 校验，两条路由都不通过时拒绝安装。
 - **安装**：校验通过后，安装脚本先执行 `pkexec pacman -U --noconfirm <下载的包>`（应用仍在运行，pkexec 在前台询问密码），然后等应用退出并重新启动它。包仍归 pacman 管理；安装脚本日志在数据目录的 `updates/install.log`。
 
