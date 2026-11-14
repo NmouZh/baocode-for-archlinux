@@ -8,7 +8,7 @@
 # digests. .SRCINFO is generated with `makepkg --printsrcinfo`.
 pkgname=baocode-bin
 pkgver=1.9.6
-pkgrel=2
+pkgrel=3
 pkgdesc='A desktop UI for Claude Code, with a fast IDE built in'
 arch=('x86_64' 'aarch64')
 url='https://github.com/NmouZh/baocode-for-archlinux'

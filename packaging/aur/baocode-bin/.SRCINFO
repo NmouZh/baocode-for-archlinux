@@ -1,7 +1,7 @@
 pkgbase = baocode-bin
 	pkgdesc = A desktop UI for Claude Code, with a fast IDE built in
 	pkgver = 1.9.6
-	pkgrel = 2
+	pkgrel = 3
 	url = https://github.com/NmouZh/baocode-for-archlinux
 	arch = x86_64
 	arch = aarch64
