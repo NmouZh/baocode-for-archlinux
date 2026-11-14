@@ -10996,6 +10996,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get aboutOpen => 'Open';
 
   @override
+  String get aboutDeviceId => 'Device ID';
+
+  @override
+  String get aboutCopy => 'Copy';
+
+  @override
   String get stashSettingsIssueSync => 'Issues as stashes';
 
   @override

@@ -17977,6 +17977,18 @@ abstract class AppLocalizations {
   /// **'Open'**
   String get aboutOpen;
 
+  /// No description provided for @aboutDeviceId.
+  ///
+  /// In en, this message translates to:
+  /// **'Device ID'**
+  String get aboutDeviceId;
+
+  /// No description provided for @aboutCopy.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy'**
+  String get aboutCopy;
+
   /// No description provided for @stashSettingsIssueSync.
   ///
   /// In en, this message translates to:
