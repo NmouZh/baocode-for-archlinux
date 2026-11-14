@@ -56,6 +56,12 @@ class _FakeQuestions implements DmsQuestionPresenter {
   bool started = false;
   bool disposed = false;
 
+  /// Whether DMS's plugin is loaded and will pop the question itself.
+  bool ready = false;
+
+  @override
+  bool get available => ready;
+
   @override
   void start() => started = true;
 
@@ -186,6 +192,24 @@ void main() {
     expect(background.status, ThreadStatus.unread);
     // Answered: nothing waits there any more.
     expect(questions.synced.last, isEmpty);
+    await tester.pump(const Duration(seconds: 5));
+  });
+
+  testWidgets('a DMS popup takes the place of the system notification', (
+    tester,
+  ) async {
+    final questions = _FakeQuestions()..ready = true;
+    start(questions: questions);
+    final background = _thread(workspace, 'Rate limit per API key');
+    background.session.send(const ComposerMessage(text: '加一个限流'));
+    await _runUntilQuestion(tester, background.session);
+
+    // DMS opens its own popup for this question: a notification behind it
+    // would be the same news twice.
+    expect(questions.synced.last.single.pop, isTrue);
+    expect(host.notifications, isEmpty);
+    expect(host.attentionRequests, 1, reason: 'the Dock still bounces');
+    expect(host.sounds, hasLength(1));
     await tester.pump(const Duration(seconds: 5));
   });
 

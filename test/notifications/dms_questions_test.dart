@@ -82,6 +82,16 @@ void main() {
     root.deleteSync(recursive: true);
   });
 
+  test('knows whether the DMS plugin is loaded', () {
+    expect(bridge.available, isFalse, reason: 'no plugin has said hello');
+    final presence = File('${root.path}/plugin')..writeAsStringSync('1234');
+    expect(bridge.available, isTrue);
+    presence.setLastModifiedSync(
+      DateTime.now().subtract(const Duration(minutes: 2)),
+    );
+    expect(bridge.available, isFalse, reason: 'a heartbeat long gone');
+  });
+
   test('publishes questions and applies the answer written for one', () async {
     final applied = <InteractionAnswer>[];
     bridge.sync([

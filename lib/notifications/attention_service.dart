@@ -122,6 +122,8 @@ class AttentionService {
     var running = 0;
     final waiting = <AgentThread>[];
     final notices = <DmsQuestionNotice>[];
+    // The agents DMS's popup tells of by itself: no second notification.
+    final shownInDms = <String>{};
     final threads = workspace.threads;
     for (final thread in threads) {
       final status = thread.status;
@@ -141,6 +143,7 @@ class AttentionService {
           if (questions != null &&
               settings.notifies(AttentionEvent.needsInput) &&
               pending is QuestionRequest) {
+            final pop = settings.when == NotifyWhen.always || !_inView(thread);
             notices.add(
               DmsQuestionNotice(
                 threadId: _id(thread),
@@ -149,10 +152,13 @@ class AttentionService {
                 requestId: pending.id,
                 title: pending.title,
                 questions: pending.questions,
-                pop: settings.when == NotifyWhen.always || !_inView(thread),
+                pop: pop,
                 answer: thread.session.answer,
               ),
             );
+            // A popup that opens by itself is the notification; where DMS
+            // only counts it in the pill, the system's is still needed.
+            if (pop && questions!.available) shownInDms.add(_id(thread));
           }
         case ThreadStatus.unread:
           badge++;
@@ -162,7 +168,11 @@ class AttentionService {
       }
       if (before == null || before == status) continue;
       if (status == ThreadStatus.needsInput) {
-        _notify(thread, AttentionEvent.needsInput);
+        _notify(
+          thread,
+          AttentionEvent.needsInput,
+          shownInDms: shownInDms.contains(_id(thread)),
+        );
       } else if (before == ThreadStatus.running &&
           (status == ThreadStatus.unread || status == ThreadStatus.idle) &&
           !thread.session.lastTurnInterrupted) {
@@ -228,7 +238,12 @@ class AttentionService {
           (workspace.grid.contains(thread) ||
               identical(workspace.current, thread)));
 
-  void _notify(AgentThread thread, AttentionEvent event, {bool sound = true}) {
+  void _notify(
+    AgentThread thread,
+    AttentionEvent event, {
+    bool sound = true,
+    bool shownInDms = false,
+  }) {
     final settings = this.settings();
     if (thread.archived || !settings.notifies(event)) return;
     if (settings.when == NotifyWhen.unfocused && _inView(thread)) return;
@@ -254,13 +269,15 @@ class AttentionService {
             ? l10n.attentionFinished
             : '${l10n.attentionFinished} · $reply';
     }
-    unawaited(
-      host.notify(
-        id: _id(thread),
-        title: thread.localizedTitle(l10n),
-        body: body,
-      ),
-    );
+    if (!shownInDms) {
+      unawaited(
+        host.notify(
+          id: _id(thread),
+          title: thread.localizedTitle(l10n),
+          body: body,
+        ),
+      );
+    }
     if (sound) _sound(settings.sound);
   }
 

@@ -50,6 +50,26 @@ class DmsQuestionBridge implements DmsQuestionPresenter {
 
   File? get _state => _root == null ? null : File('${_root.path}/state.json');
 
+  /// What the plugin touches while it is loaded (see the daemon's
+  /// heartbeat): there is no other way to know whether anything reads
+  /// [state].
+  File? get _presence => _root == null ? null : File('${_root.path}/plugin');
+
+  /// A heartbeat older than this is a plugin that is not running any more.
+  static const presenceFreshFor = Duration(seconds: 30);
+
+  @override
+  bool get available {
+    final presence = _presence;
+    if (presence == null) return false;
+    try {
+      final modified = presence.statSync().modified;
+      return DateTime.now().difference(modified) < presenceFreshFor;
+    } on FileSystemException {
+      return false;
+    }
+  }
+
   Future<void>? _started;
   Timer? _scan;
   Timer? _debounce;

@@ -47,6 +47,11 @@ abstract interface class DmsQuestionPresenter {
   static DmsQuestionPresenter? current() =>
       platform.currentDmsQuestionPresenter();
 
+  /// Whether DMS's plugin is loaded and will show what is published: the
+  /// popup is then the notification, and the system's own would be a second
+  /// one behind it. False when no plugin is there to show anything.
+  bool get available;
+
   /// Prepares what the DMS plugin reads; once for the app.
   void start();
 
