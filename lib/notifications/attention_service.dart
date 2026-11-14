@@ -8,6 +8,7 @@ import '../l10n/l10n.dart';
 import '../workspace/workspace.dart';
 import 'attention_host.dart';
 import 'attention_settings.dart';
+import 'dms_questions.dart';
 import 'notification_sound.dart';
 
 /// Tells the user when an agent wants them: it stopped on a question or
@@ -25,6 +26,7 @@ class AttentionService {
     required this.onOpen,
     this.settingsChanges,
     this.shown,
+    this.questions,
     bool Function()? focused,
   }) : _focused = focused ?? _windowFocused;
 
@@ -72,6 +74,7 @@ class AttentionService {
 
   void start() {
     host.onOpen = _open;
+    questions?.start();
     workspace.addListener(_update);
     settingsChanges?.addListener(_update);
     _lifecycle = AppLifecycleListener(onStateChange: (_) => _focusChanged());
@@ -81,6 +84,7 @@ class AttentionService {
 
   void dispose() {
     host.onOpen = null;
+    questions?.dispose();
     workspace.removeListener(_update);
     settingsChanges?.removeListener(_update);
     _lifecycle?.dispose();
@@ -112,9 +116,12 @@ class AttentionService {
   }
 
   void _update() {
+    final settings = this.settings();
+    final l10n = this.l10n();
     var badge = 0;
     var running = 0;
     final waiting = <AgentThread>[];
+    final notices = <DmsQuestionNotice>[];
     final threads = workspace.threads;
     for (final thread in threads) {
       final status = thread.status;
@@ -129,6 +136,24 @@ class AttentionService {
         case ThreadStatus.needsInput:
           badge++;
           waiting.add(thread);
+          // What is asked in full, where DMS shows it to be answered.
+          final pending = thread.session.pendingInteraction;
+          if (questions != null &&
+              settings.notifies(AttentionEvent.needsInput) &&
+              pending is QuestionRequest) {
+            notices.add(
+              DmsQuestionNotice(
+                threadId: _id(thread),
+                threadTitle: thread.localizedTitle(l10n),
+                project: thread.project.name,
+                requestId: pending.id,
+                title: pending.title,
+                questions: pending.questions,
+                pop: settings.when == NotifyWhen.always || !_inView(thread),
+                answer: thread.session.answer,
+              ),
+            );
+          }
         case ThreadStatus.unread:
           badge++;
         case ThreadStatus.running:
@@ -153,6 +178,7 @@ class AttentionService {
     if (_statuses.length > threads.length) {
       _statuses.removeWhere((thread, _) => !threads.contains(thread));
     }
+    questions?.sync(notices);
     if (badge != _badge) {
       _badge = badge;
       unawaited(host.setBadge(badge));
@@ -189,6 +215,10 @@ class AttentionService {
     _tray = tray;
     unawaited(host.setTray(tray));
   }
+
+  /// Shows the questions agents wait on in DMS, where this machine has
+  /// one; null elsewhere.
+  final DmsQuestionPresenter? questions;
 
   /// Whether the user is looking at [thread]: the window in front, the
   /// agent showing in it.

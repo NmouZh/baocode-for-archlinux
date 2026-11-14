@@ -8,6 +8,7 @@ import 'package:baocode/l10n/l10n.dart';
 import 'package:baocode/notifications/attention_host.dart';
 import 'package:baocode/notifications/attention_service.dart';
 import 'package:baocode/notifications/attention_settings.dart';
+import 'package:baocode/notifications/dms_questions.dart';
 import 'package:baocode/workspace/workspace.dart';
 
 /// Records what the service asks of the system.
@@ -49,6 +50,22 @@ class _FakeHost implements AttentionHost {
   set onOpen(void Function(String? id)? handler) => openHandler = handler;
 }
 
+/// Records what DMS would show, and what is answered there.
+class _FakeQuestions implements DmsQuestionPresenter {
+  final List<List<DmsQuestionNotice>> synced = [];
+  bool started = false;
+  bool disposed = false;
+
+  @override
+  void start() => started = true;
+
+  @override
+  void sync(List<DmsQuestionNotice> notices) => synced.add(notices);
+
+  @override
+  void dispose() => disposed = true;
+}
+
 AgentThread _thread(Workspace workspace, String title) =>
     workspace.threads.firstWhere((thread) => thread.title == title);
 
@@ -78,7 +95,7 @@ void main() {
   var focused = true;
   final opened = <AgentThread>[];
 
-  void start() {
+  void start({DmsQuestionPresenter? questions}) {
     workspace = Workspace.mock();
     host = _FakeHost();
     service = AttentionService(
@@ -87,6 +104,7 @@ void main() {
       settings: () => settings,
       l10n: () => englishLocalizations,
       onOpen: opened.add,
+      questions: questions,
       focused: () => focused,
     )..start();
     addTearDown(service.dispose);
@@ -138,6 +156,39 @@ void main() {
     await tester.pump(const Duration(seconds: 5));
   });
 
+  testWidgets('shows what an agent asks in DMS, to answer there', (
+    tester,
+  ) async {
+    final questions = _FakeQuestions();
+    start(questions: questions);
+    final background = _thread(workspace, 'Rate limit per API key');
+    background.session.send(const ComposerMessage(text: '加一个限流'));
+    await _runUntilQuestion(tester, background.session);
+
+    final asked = questions.synced.last.single;
+    expect(asked.threadTitle, 'Rate limit per API key');
+    expect(asked.project, isNotEmpty);
+    expect(asked.title, 'Claude has a question');
+    expect(asked.questions, hasLength(2));
+    expect(asked.questions.first.prompt, '输入框的高度策略用哪一种？');
+    expect(asked.questions.first.options.first.label, '随内容自动增高，最多 8 行');
+    expect(asked.questions.last.allowMultiple, isTrue);
+    expect(asked.pop, isTrue);
+
+    // The answer written in DMS goes to the agent, which carries on.
+    asked.answer(
+      const QuestionAnswer([
+        ['随内容自动增高，最多 8 行'],
+        ['@ 提及文件'],
+      ]),
+    );
+    await _runUntilDone(tester, background.session);
+    expect(background.status, ThreadStatus.unread);
+    // Answered: nothing waits there any more.
+    expect(questions.synced.last, isEmpty);
+    await tester.pump(const Duration(seconds: 5));
+  });
+
   testWidgets('notifies of a plan put to the user, to start or change', (
     tester,
   ) async {
@@ -175,12 +226,15 @@ void main() {
 
   testWidgets('the agent in view notifies only while the window is not in '
       'front', (tester) async {
-    start();
+    final questions = _FakeQuestions();
+    start(questions: questions);
     final shown = workspace.selected;
     shown.session.send(const ComposerMessage(text: '加一个限流'));
     await _runUntilQuestion(tester, shown.session);
     expect(host.notifications, isEmpty);
     expect(host.sounds, isEmpty);
+    // Still shown to answer there, but not popped in front of the agent.
+    expect(questions.synced.last.single.pop, isFalse);
 
     // Away from the window: its turn ends unseen, and is told of.
     focused = false;

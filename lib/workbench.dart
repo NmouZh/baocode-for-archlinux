@@ -96,6 +96,7 @@ import 'l10n/l10n.dart';
 import 'notifications/attention_host.dart';
 import 'notifications/attention_service.dart';
 import 'notifications/attention_settings.dart';
+import 'notifications/dms_questions.dart';
 import 'platform/data_dir.dart' show DataDirectory;
 import 'platform/event_log.dart' show appEvent;
 import 'platform/local_paths.dart'
@@ -564,6 +565,12 @@ class _WorkbenchState extends State<Workbench> implements WindowDelegate {
   /// looking at their files every so often.
   Timer? _sessionScan;
 
+  /// The questions agents wait on, in DMS's popup, on a machine that has
+  /// one; the main window's, once for the app.
+  late final DmsQuestionPresenter? _dmsQuestions = _main
+      ? DmsQuestionPresenter.current()
+      : null;
+
   /// Notifies of the agents that want the user, keeps the count on the
   /// app's icon and the tray icon (see lib/notifications/): the main
   /// window's, once for the app. One picked shows in the IDE window it is
@@ -572,6 +579,7 @@ class _WorkbenchState extends State<Workbench> implements WindowDelegate {
       ? AttentionService(
           workspace: _workspace,
           host: ChannelAttentionHost.instance,
+          questions: _dmsQuestions,
           settings: () => AttentionSettings.parse(
             widget.settings?.files?.settings.values ?? const {},
           ),
