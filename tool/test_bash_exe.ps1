@@ -24,6 +24,8 @@ function Invoke-Bash([string[]] $Arguments, [string] $Stdin = '', [int] $Seconds
   $info.RedirectStandardInput = $true
   $info.RedirectStandardOutput = $true
   $info.RedirectStandardError = $true
+  $info.StandardOutputEncoding = [Text.UTF8Encoding]::new($false)
+  $info.StandardErrorEncoding = [Text.UTF8Encoding]::new($false)
   $info.UseShellExecute = $false
   $process = [Diagnostics.Process]::Start($info)
   $out = $process.StandardOutput.ReadToEndAsync()
@@ -113,6 +115,50 @@ try {
   Test-Bash 'a program on PATH' 'git --version' '^git version'
   Test-Bash 'Windows find, as written for it' 'find /c "foo" a.txt' '(?i)a\.txt: 1'
   Test-Bash 'a redirection to a file' 'echo written > out.txt && cat out.txt' '^written\n$'
+  Test-Bash '/tmp, redirected to and read' 'echo kept > /tmp/bash-exe-test-$$ && cat /tmp/bash-exe-test-$$ && rm /tmp/bash-exe-test-$$' '^kept\n$'
+
+  # A Windows program gets its arguments as Git Bash passes them: POSIX
+  # paths in Windows spelling, `//x` as `/x`, switches as they are.
+  Test-Bash 'a doubled slash, to a Windows program' 'cmd //c echo from-cmd' '^from-cmd\s*$'
+  Test-Bash 'POSIX paths, to a Windows program' "cmd //c echo '$msys' --file='$msys'" '(?i)^[a-z]:/windows --file=[a-z]:/windows\s*$'
+  Test-Bash '/tmp, to a Windows program' 'cmd //c echo /tmp/x' '(?i)^[a-z]:/\S+/x\s*$'
+  Test-Bash 'switches, to a Windows program' 'cmd /c echo /s /nologo' '^/s /nologo\s*$'
+  Test-Bash 'MSYS_NO_PATHCONV' "MSYS_NO_PATHCONV=1 cmd /c echo '$msys'" '(?i)^/[a-z]/windows\s*$'
+
+  # What programs write reaches the agent as UTF-8.
+  Test-Bash 'a console program writes UTF-8' 'cmd //c echo 中文' '^中文\s*$'
+  Test-Bash 'PowerShell writes UTF-8' "powershell -NoProfile -Command 'Write-Output 中文'" '^中文\s*$'
+  Test-Bash 'Python in UTF-8 mode' 'echo "$PYTHONUTF8"' '^1\n$'
+  Test-Bash 'SHELL' '"$SHELL" -c "echo nested"' '^nested\s*$'
+  # `bash`, `sh` are this bash (with its tools), not WSL's or Git's.
+  Test-Bash 'bash script.sh' 'echo "type -t rg" > nested.sh && bash nested.sh && sh -c "type -t rg"' '^builtin\nbuiltin\n$'
+  Test-Bash 'a script is its own BASH_SOURCE' 'echo ''[[ "${BASH_SOURCE[0]}" == "$0" ]] && echo main'' > main.sh && bash main.sh' '^main\n$'
+  Test-Bash 'BASH, the path of this bash' 'case "$BASH" in *[/\\]bash.exe) echo path ;; esac' '^path\n$'
+
+  # What scripts written for Git Bash test for and use.
+  Test-Bash 'uname and OSTYPE, as Git Bash' 'uname -s; echo "$OSTYPE"' '^MINGW64_NT-\S+\nmsys\n$'
+  Test-Bash 'process substitution' 'diff <(printf "a\n") <(printf "b\n"); cat <(echo sub)' '^1c1\n< a\n---\n> b\nsub\n$'
+  Test-Bash '/dev/stdin and /dev/stderr' 'echo in | cat /dev/stdin; echo teed | tee /dev/stderr 2>&1 >/dev/null' '^in\nteed\n$'
+  Test-Bash '/dev/urandom and /dev/zero' 'head -c 16 /dev/urandom | wc -c; tr -dc a-z < /dev/urandom | head -c 5 | wc -c; head -c 3 /dev/zero | od -An -tx1' '^\s*16\n\s*5\n\s*00 00 00\n$'
+  Test-Bash 'env and xargs find .exe programs' 'env A=1 git --version; echo --version | xargs git' '^git version.*\ngit version'
+  Test-Bash 'sed, on input not in UTF-8' 'printf "caf\xe9 x\n" | sed s/x/y/ | od -An -tx1' '^\s*63 61 66 e9 20 79 0a\n$'
+  Test-Bash 'a #! line' 'printf "#!/usr/bin/env node\nconsole.log(process.argv[2])\n" > shebang.js && ./shebang.js arg' '^arg\n$'
+  Test-Bash 'chmod' 'touch ro.txt && chmod 444 ro.txt && [ ! -w ro.txt ] && chmod u+w ro.txt && [ -w ro.txt ] && echo ok' '^ok\n$'
+  Test-Bash 'an EXIT trap when a nested shell ends' 'bash -c ''trap "echo bye" EXIT; echo body''; printf "trap \"echo bye2\" EXIT\necho body2\n" > trap.sh && bash trap.sh' '^body\nbye\nbody2\nbye2\n$'
+  Test-Bash '/bin and /usr/bin paths' '/bin/bash -c "echo ok"; /usr/bin/env A=1 node -e "console.log(process.env.A)"; /bin/sh -c "type -t rg"' '^ok\n1\nbuiltin\n$'
+  Test-Bash 'env -i' 'env -i bash -c "echo clean:\$A"; env -i node -e "console.log(1)"' '^clean:\n1\n$'
+  Test-Bash 'pwd -W and rev' 'cd /c/Windows && pwd -W; echo abc | rev' '(?i)^c:/windows\ncba\n$'
+
+  # A script run as `bash script.sh` has the tools ahead of PATH, as `-c`
+  # has (System32's `sort`, Git's `xargs` came first).
+  [IO.File]::WriteAllText((Join-Path $work 'tools.sh'), "printf 'b\na\n' | sort | tr '\n' ' '; printf 'x\n' | xargs -I{} echo `"got {}`"; exit 4`n")
+  $ran = Invoke-Bash @('tools.sh')
+  if ($ran.Status -ne 4 -or $ran.Out -ne "a b got x`n") {
+    Write-Host "FAIL a script's tools: $($ran.Status) '$($ran.Out)' $($ran.Err)"
+    $failed++
+  } else {
+    Write-Host "ok   a script's tools"
+  }
 
   # A job left in the background is not waited for, as bash's are not.
   $started = Get-Date

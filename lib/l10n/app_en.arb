@@ -1420,6 +1420,7 @@
   "imagePickDecline": "Skip",
   "imageSetDefault": "Set as default",
   "imageDefaultSet": "Set as default image model",
+  "imageCopyPrompt": "Copy prompt",
   "toolProposingGoal": "Proposing a goal",
   "toolProposedGoal": "Proposed a goal",
   "goalAdopt": "Set as goal",
@@ -8930,8 +8931,8 @@
   "generalSettingsSessionToolsDescription": "An agent can list your other conversations, read where they stand without waking them, hand them work (resumed if stopped, queued if busy) and wait for them. For one conversation that coordinates the others; agents started after the change have it.",
   "generalSettingsCommandLine": "Command Line",
   "baoBashRecommended": "BaoCode Bash (recommended)",
-  "baoBashDescription": "A complete bash for agents on Windows: rg, grep, sed, awk, find, jq, tar and some 80 other common commands built in, no Git for Windows needed, and C:\\ and /c/ paths alike. The built-in core runs its agents' commands with it.",
-  "baoBashNotInstalled": "Not installed: agents run commands with Git Bash, or with cmd.exe where there is none.",
+  "baoBashDescription": "A complete bash for agents on Windows: rg, grep, sed, awk, find, jq, tar and some 80 other common commands built in, no Git for Windows needed, and C:\\ and /c/ paths alike. Both the built-in core and Claude Code's run their agents' commands with it.",
+  "baoBashNotInstalled": "Not installed yet.",
   "baoBashInstalled": "Version {version} installed.",
   "@baoBashInstalled": {
     "placeholders": {
@@ -8977,5 +8978,31 @@
   },
   "baoBashNoticeTitle": "On Windows, BaoCode Bash is recommended",
   "baoBashNoticeBody": "Agents run commands more reliably with it. It brings bash with rg, grep, sed, awk, find, jq, tar and some 80 other common commands, no Git for Windows needed; it takes C:\\ and /c/ paths alike, so commands no longer fail on the differences between cmd and PowerShell.",
-  "baoBashNoticeLater": "Not Now"
+  "baoBashNoticeLater": "Not Now",
+  "baoBashSource": "Open source:",
+  "baoBashHintInstall": "Install and Use",
+  "commandLineShell": "Shell",
+  "commandLineShellDescription": "What agents run their commands in on Windows. Claude Code's CLI core takes bash alone: with cmd or PowerShell picked, it runs Git Bash.",
+  "commandLineShellCustom": "Custom…",
+  "commandLineShellInUse": "In use: {path}",
+  "@commandLineShellInUse": {
+    "placeholders": {
+      "path": {
+        "type": "String"
+      }
+    }
+  },
+  "commandLineShellFallback": "{shell} is not ready yet: commands run in {path} meanwhile.",
+  "@commandLineShellFallback": {
+    "placeholders": {
+      "shell": {
+        "type": "String"
+      },
+      "path": {
+        "type": "String"
+      }
+    }
+  },
+  "commandLineCustomPath": "Custom shell",
+  "commandLineCustomPathDescription": "The program to run commands with: a bash.exe, cmd.exe, powershell.exe or pwsh.exe."
 }

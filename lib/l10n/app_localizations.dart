@@ -4478,6 +4478,12 @@ abstract class AppLocalizations {
   /// **'Set as default image model'**
   String get imageDefaultSet;
 
+  /// No description provided for @imageCopyPrompt.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy prompt'**
+  String get imageCopyPrompt;
+
   /// No description provided for @toolProposingGoal.
   ///
   /// In en, this message translates to:
@@ -22840,13 +22846,13 @@ abstract class AppLocalizations {
   /// No description provided for @baoBashDescription.
   ///
   /// In en, this message translates to:
-  /// **'A complete bash for agents on Windows: rg, grep, sed, awk, find, jq, tar and some 80 other common commands built in, no Git for Windows needed, and C:\\ and /c/ paths alike. The built-in core runs its agents\' commands with it.'**
+  /// **'A complete bash for agents on Windows: rg, grep, sed, awk, find, jq, tar and some 80 other common commands built in, no Git for Windows needed, and C:\\ and /c/ paths alike. Both the built-in core and Claude Code\'s run their agents\' commands with it.'**
   String get baoBashDescription;
 
   /// No description provided for @baoBashNotInstalled.
   ///
   /// In en, this message translates to:
-  /// **'Not installed: agents run commands with Git Bash, or with cmd.exe where there is none.'**
+  /// **'Not installed yet.'**
   String get baoBashNotInstalled;
 
   /// No description provided for @baoBashInstalled.
@@ -22914,6 +22920,60 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Not Now'**
   String get baoBashNoticeLater;
+
+  /// No description provided for @baoBashSource.
+  ///
+  /// In en, this message translates to:
+  /// **'Open source:'**
+  String get baoBashSource;
+
+  /// No description provided for @baoBashHintInstall.
+  ///
+  /// In en, this message translates to:
+  /// **'Install and Use'**
+  String get baoBashHintInstall;
+
+  /// No description provided for @commandLineShell.
+  ///
+  /// In en, this message translates to:
+  /// **'Shell'**
+  String get commandLineShell;
+
+  /// No description provided for @commandLineShellDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'What agents run their commands in on Windows. Claude Code\'s CLI core takes bash alone: with cmd or PowerShell picked, it runs Git Bash.'**
+  String get commandLineShellDescription;
+
+  /// No description provided for @commandLineShellCustom.
+  ///
+  /// In en, this message translates to:
+  /// **'Custom…'**
+  String get commandLineShellCustom;
+
+  /// No description provided for @commandLineShellInUse.
+  ///
+  /// In en, this message translates to:
+  /// **'In use: {path}'**
+  String commandLineShellInUse(String path);
+
+  /// No description provided for @commandLineShellFallback.
+  ///
+  /// In en, this message translates to:
+  /// **'{shell} is not ready yet: commands run in {path} meanwhile.'**
+  String commandLineShellFallback(String shell, String path);
+
+  /// No description provided for @commandLineCustomPath.
+  ///
+  /// In en, this message translates to:
+  /// **'Custom shell'**
+  String get commandLineCustomPath;
+
+  /// No description provided for @commandLineCustomPathDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'The program to run commands with: a bash.exe, cmd.exe, powershell.exe or pwsh.exe.'**
+  String get commandLineCustomPathDescription;
 }
 
 class _AppLocalizationsDelegate
