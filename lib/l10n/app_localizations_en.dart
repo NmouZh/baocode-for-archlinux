@@ -1628,6 +1628,60 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String sessionStepDone(String action) {
+    String _temp0 = intl.Intl.selectLogic(action, {
+      'new': 'Started',
+      'send': 'Handed work to',
+      'wait': 'Waited for',
+      'read': 'Read',
+      'stop': 'Stopped',
+      'changes': 'Checked the changes of',
+      'list': 'Listed the conversations',
+      'other': 'Coordinated',
+    });
+    return '$_temp0';
+  }
+
+  @override
+  String sessionStepRunning(String action) {
+    String _temp0 = intl.Intl.selectLogic(action, {
+      'new': 'Starting',
+      'send': 'Handing work to',
+      'wait': 'Waiting for',
+      'read': 'Reading',
+      'stop': 'Stopping',
+      'changes': 'Checking the changes of',
+      'list': 'Listing the conversations',
+      'other': 'Coordinating',
+    });
+    return '$_temp0';
+  }
+
+  @override
+  String get sessionOpen => 'Open the conversation';
+
+  @override
+  String sessionStatus(String status) {
+    String _temp0 = intl.Intl.selectLogic(status, {
+      'running': 'Working',
+      'waiting': 'Waiting on you',
+      'done': 'Done',
+      'failed': 'Failed',
+      'other': '',
+    });
+    return '$_temp0';
+  }
+
+  @override
+  String get sessionAnswer => 'Answer';
+
+  @override
+  String get sessionShowMore => 'Show more';
+
+  @override
+  String get sessionShowLess => 'Show less';
+
+  @override
   String get sidePanelPlan => 'Plan';
 
   @override
@@ -3272,6 +3326,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get queuedRemove => 'Remove from the queue';
 
   @override
+  String get replySuggestionHint =>
+      'Click to put it in the input, double-click to send it';
+
+  @override
   String get stopConfirmMessage => 'Stop the agent?';
 
   @override
@@ -3714,11 +3772,11 @@ class AppLocalizationsEn extends AppLocalizations {
   String get generalSettingsQueuedDuringTurn => 'Join the Current Task';
 
   @override
-  String get generalSettingsPromptSuggestions => 'Suggest Next Prompt';
+  String get generalSettingsPromptSuggestions => 'Suggest Replies';
 
   @override
   String get generalSettingsPromptSuggestionsDescription =>
-      'After each turn, a greyed-out suggestion for your next message, taken with Tab. Each one is an extra request with the whole conversation; turn it off to save tokens. Applies from the next message; Claude Code only.';
+      'After each turn, two or three things you might send next, over the composer: click one to put it in the input and edit it, double-click to send it as it is; Tab in an empty input takes the first. The agent writes them at the end of its reply, with no extra request. Applies from the next message.';
 
   @override
   String generalSettingsCommitAttributionLabel(String name) {
@@ -6845,7 +6903,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get quotaBarThisChat => 'This chat';
 
   @override
-  String get quotaBarRefresh => 'Refresh Quota';
+  String get quotaBarRefresh => 'Refresh Quota Data';
 
   @override
   String modelsQuotaResetsIn(String time) {
@@ -7401,6 +7459,16 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get modelsSwitchConfirm => 'Switch';
+
+  @override
+  String modelsFallbackHint(String picked, String fallback) {
+    return '$picked flagged a message, so Claude Code answers on $fallback instead. Switch back from the menu.';
+  }
+
+  @override
+  String modelsFallbackSwitchBack(String name) {
+    return 'Switch Back to $name';
+  }
 
   @override
   String get modelsAuxiliary => 'Auxiliary Model';
@@ -8068,23 +8136,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get remoteSignInConnect => 'Connect';
 
   @override
-  String remoteFolderPlaceholder(String host) {
-    return 'A folder on $host: pick one, or type a path';
-  }
-
-  @override
-  String get remoteFolderRefresh => 'Read the folders again';
-
-  @override
-  String get remoteOpenThisFolder => 'Open This Folder';
-
-  @override
   String get remoteParentFolder => 'Parent Folder';
-
-  @override
-  String remoteGoTo(String path) {
-    return 'Go to $path';
-  }
 
   @override
   String remoteListFailed(String path) {
@@ -8098,21 +8150,6 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get remoteFileHostPlaceholder => 'Select a host, to browse its files';
-
-  @override
-  String remoteFilePlaceholder(String host) {
-    return 'A file on $host: pick one, or type a path';
-  }
-
-  @override
-  String remoteOpenFile(String path) {
-    return 'Open $path';
-  }
-
-  @override
-  String remoteOpenFailed(String path) {
-    return 'Could not open $path';
-  }
 
   @override
   String get remoteRecentFiles => 'Recent Remote Files';
@@ -10298,6 +10335,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get browserSettingsStatus => 'Status';
 
   @override
+  String get browserSettingsStatusDescription =>
+      'Agents use the browser marked In Use; choose another to switch.';
+
+  @override
   String get browserSettingsNotInstalled => 'No browser has connected yet';
 
   @override
@@ -10332,6 +10373,21 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String browserSettingsExtensionVersion(String version) {
     return 'Extension $version';
+  }
+
+  @override
+  String get browserSettingsUse => 'Use This Browser';
+
+  @override
+  String get browserSettingsUsing => 'In Use';
+
+  @override
+  String get browserSettingsChosenMissing =>
+      'The browser chosen is not connected';
+
+  @override
+  String browserSettingsChosenMissingDescription(String path, String browser) {
+    return '$path: agents use $browser until it connects again.';
   }
 
   @override
@@ -14080,7 +14136,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get generalSettingsSessionToolsDescription =>
-      'An agent can list your other conversations, read where they stand without waking them, hand them work (resumed if stopped, queued if busy) and wait for them. For one conversation that coordinates the others; agents started after the change have it.';
+      'An agent can list your other conversations, read where they stand without waking them, start new ones or hand work to others (in a worktree of their own if need be), and hears back by itself when each is done, fails or waits on you; it can also stop them and see which files they changed. For one conversation that coordinates the others. Off, agents neither see nor act on other conversations, and those handed work no longer report back.';
 
   @override
   String get generalSettingsCommandLine => 'Command Line';
@@ -14171,4 +14227,133 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get commandLineCustomPathDescription =>
       'The program to run commands with: a bash.exe, cmd.exe, powershell.exe or pwsh.exe.';
+
+  @override
+  String remoteBrowserFolderTitle(String host) {
+    return 'Open a Folder on $host';
+  }
+
+  @override
+  String remoteBrowserFileTitle(String host) {
+    return 'Open a File on $host';
+  }
+
+  @override
+  String get remoteBrowserPlaces => 'Locations';
+
+  @override
+  String get remoteBrowserRecent => 'Recent Locations';
+
+  @override
+  String get remoteBrowserHome => 'Home';
+
+  @override
+  String get remoteBrowserThisPc => 'This PC';
+
+  @override
+  String get remoteBrowserRoot => 'Root';
+
+  @override
+  String remoteBrowserLocalDisk(String drive) {
+    return 'Local Disk ($drive)';
+  }
+
+  @override
+  String get remoteBrowserBack => 'Back';
+
+  @override
+  String get remoteBrowserForward => 'Forward';
+
+  @override
+  String get remoteBrowserRefresh => 'Refresh';
+
+  @override
+  String get remoteBrowserFilter => 'Filter';
+
+  @override
+  String get remoteBrowserView => 'View Options';
+
+  @override
+  String get remoteBrowserShowHidden => 'Hidden Items';
+
+  @override
+  String get remoteBrowserShowSystem => 'Protected Operating System Files';
+
+  @override
+  String get remoteBrowserNewFolder => 'New Folder';
+
+  @override
+  String get remoteBrowserOpen => 'Open';
+
+  @override
+  String get remoteBrowserEmpty => 'This folder is empty.';
+
+  @override
+  String get remoteBrowserNoFolders => 'No folders here.';
+
+  @override
+  String remoteBrowserNoMatch(String filter) {
+    return 'Nothing here matches “$filter”.';
+  }
+
+  @override
+  String remoteBrowserHiddenCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count hidden items',
+      one: '1 hidden item',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get remoteBrowserShowHiddenNow => 'Show';
+
+  @override
+  String get remoteBrowserEditPath => 'Go to a Path';
+
+  @override
+  String get remoteBrowserPathPlaceholder =>
+      'A path: ~/code, /srv/app, D:\\work';
+
+  @override
+  String remoteBrowserNotFound(String path) {
+    return '$path does not exist.';
+  }
+
+  @override
+  String remoteBrowserNotFolder(String path) {
+    return '$path is a file, not a folder.';
+  }
+
+  @override
+  String remoteBrowserMakeFailed(String error) {
+    return 'Could not make the folder: $error';
+  }
+
+  @override
+  String get remoteBrowserFolderAction => 'Open Folder';
+
+  @override
+  String get remoteBrowserFileAction => 'Open File';
+
+  @override
+  String remoteBrowserSaveTitle(String host) {
+    return 'Save to $host';
+  }
+
+  @override
+  String get remoteBrowserSaveAction => 'Save As';
+
+  @override
+  String get remoteBrowserSaveName => 'Save As:';
+
+  @override
+  String get remoteBrowserSave => 'Save';
+
+  @override
+  String remoteBrowserReplace(String name) {
+    return '“$name” already exists. Replace it?';
+  }
 }
