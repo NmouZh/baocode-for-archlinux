@@ -5,7 +5,7 @@
 # and checksums come from the upstream GitHub release; the checksums are the
 # release assets' GitHub SHA-256 digests.
 pkgname=baocode-bin
-pkgver=2.0.1
+pkgver=2.0.2
 pkgrel=1
 pkgdesc='A desktop UI for Claude Code, with a fast IDE built in'
 arch=('x86_64' 'aarch64')
@@ -17,8 +17,8 @@ conflicts=('baocode')
 options=('!strip' '!debug')
 source_x86_64=("https://github.com/baocode-dev/baocode/releases/download/v${pkgver}/BaoCode-${pkgver}-linux-amd64.tar.gz")
 source_aarch64=("https://github.com/baocode-dev/baocode/releases/download/v${pkgver}/BaoCode-${pkgver}-linux-arm64.tar.gz")
-sha256sums_x86_64=('e24d484437a35fc901f43747a73322f41eee1ee77fc94d1aebb8583d3c457110')
-sha256sums_aarch64=('b59a32445dce74c9aacf622542b6aa1decc9b29caf1a25f8410922183e8c49a2')
+sha256sums_x86_64=('5929f1ab2c9a93a432e03cbac9de49aca0fe99b362fc4160001b180d6a7e477e')
+sha256sums_aarch64=('e564061e83aca37b7c03a087c05e579d4ea7da459f60cfb860383d023569bb1e')
 
 package() {
   # The upstream tarball holds ./baocode, ./baocode-browser-host, ./data/,
