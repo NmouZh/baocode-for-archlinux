@@ -2750,6 +2750,12 @@ abstract class AppLocalizations {
   /// **'No matching results'**
   String get quickOpenNoMatchingResults;
 
+  /// No description provided for @quickOpenTooManyFiles.
+  ///
+  /// In en, this message translates to:
+  /// **'Only the first {count} files are searched: this project has more'**
+  String quickOpenTooManyFiles(int count);
+
   /// Command palette group label.
   ///
   /// In en, this message translates to:
@@ -11684,18 +11690,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Sends each conversation\'s own prompt_cache_key, so the upstream (or a relay in front of several) routes its requests to where the earlier ones are cached. Turn off for an upstream that rejects the field.'**
   String get modelsPromptCacheKeyDescription;
-
-  /// No description provided for @modelsCodexVersion.
-  ///
-  /// In en, this message translates to:
-  /// **'Codex Version'**
-  String get modelsCodexVersion;
-
-  /// No description provided for @modelsCodexVersionDescription.
-  ///
-  /// In en, this message translates to:
-  /// **'The Codex CLI version requests are made as. The backend only lists models that version supports, so if new models are missing, enter a newer version and refresh the model list. Leave empty to use the app\'s default.'**
-  String get modelsCodexVersionDescription;
 
   /// No description provided for @modelsEnv.
   ///
