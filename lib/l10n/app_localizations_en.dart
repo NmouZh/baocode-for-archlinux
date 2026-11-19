@@ -1642,6 +1642,7 @@ class AppLocalizationsEn extends AppLocalizations {
       'stop': 'Stopped',
       'changes': 'Checked the changes of',
       'list': 'Listed the conversations',
+      'models': 'Checked the models',
       'other': 'Coordinated',
     });
     return '$_temp0';
@@ -1657,6 +1658,7 @@ class AppLocalizationsEn extends AppLocalizations {
       'stop': 'Stopping',
       'changes': 'Checking the changes of',
       'list': 'Listing the conversations',
+      'models': 'Checking the models',
       'other': 'Coordinating',
     });
     return '$_temp0';
@@ -2735,6 +2737,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get turnCopy => 'Copy reply';
 
   @override
+  String get turnFork => 'Fork from here';
+
+  @override
   String get turnCopied => 'Copied';
 
   @override
@@ -2849,6 +2854,31 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get activityCompacting => 'Compacting conversation';
+
+  @override
+  String get noticeCompacted => 'Conversation compacted';
+
+  @override
+  String get noticeCompactedAuto => 'Conversation compacted automatically';
+
+  @override
+  String get noticeCompactedTooLong =>
+      'Conversation compacted early: the provider refused it as too long for the model';
+
+  @override
+  String noticeCompactedTooLongWindow(String window) {
+    return 'Conversation compacted early: the provider refused it as too long for the model, which takes less than the $window context set';
+  }
+
+  @override
+  String noticeCompactedTokens(String tokens) {
+    return '$tokens tokens';
+  }
+
+  @override
+  String noticeCompactedFromTo(String before, String after) {
+    return '$before → $after tokens';
+  }
 
   @override
   String get activityPlanning => 'Planning next move';
@@ -4952,6 +4982,43 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String langRunning(String id) {
     return '$id is running';
+  }
+
+  @override
+  String langError(String id) {
+    return '$id reported an error';
+  }
+
+  @override
+  String langWarning(String id) {
+    return '$id reported a warning';
+  }
+
+  @override
+  String get langClickForDetails => 'Click for log and settings';
+
+  @override
+  String get langViewLog => 'View Log';
+
+  @override
+  String get langOpenLspSettings => 'Open LSP Settings';
+
+  @override
+  String get langServerLogLabel => 'LSP Log';
+
+  @override
+  String langNoLogOutput(String id) {
+    return 'No log output from $id yet.';
+  }
+
+  @override
+  String langServerInitializing(String id) {
+    return '$id is still initializing (click the status bar for details)';
+  }
+
+  @override
+  String langServerImportError(String id) {
+    return '$id failed to load the project (click the status bar for details)';
   }
 
   @override
@@ -7904,7 +7971,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get appearanceSettingsMinimapDescription =>
-      'A minimap of the whole conversation at the left of its column, where you are in it shown as you scroll; click or drag it to get somewhere. It stands in for the scrollbar, and is not shown in a window too narrow for it. Off: the scrollbar.';
+      'A minimap of the whole conversation beside its column, where you are in it shown as you scroll; click or drag it to get somewhere. It stands in for the scrollbar, and is not shown in a window too narrow for it. Off: the scrollbar.';
 
   @override
   String get appearanceSettingsWindowBlur => 'Native Window Blur';
@@ -7955,6 +8022,24 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get minimapElasticityBouncy => 'Bouncy';
+
+  @override
+  String get appearanceSettingsMinimapSide => 'Minimap Position';
+
+  @override
+  String get appearanceSettingsMinimapSideDescription =>
+      'Which side of the conversation\'s column the minimap is on. At the right it takes the scrollbar\'s place, below the side panel\'s buttons.';
+
+  @override
+  String appearanceSettingsMinimapSideLabel(String side) {
+    return 'Minimap position: $side';
+  }
+
+  @override
+  String get minimapSideLeft => 'Left';
+
+  @override
+  String get minimapSideRight => 'Right';
 
   @override
   String get appearanceSettingsCodeFont => 'Code Font';
@@ -8116,6 +8201,11 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String remoteConnectionLost(String host) {
+    return 'The connection to $host is lost, and being tried again by itself. What you send waits until it is back';
+  }
+
+  @override
   String get remoteRetry => 'Retry';
 
   @override
@@ -8180,6 +8270,11 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String remoteStatusFailed(String kind, String host) {
     return '$kind: $host (disconnected)';
+  }
+
+  @override
+  String remoteStatusDown(String kind, String host) {
+    return '$kind: $host (disconnected, retrying...)';
   }
 
   @override
@@ -8941,6 +9036,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get sidebarHostDisconnected => 'Disconnected';
+
+  @override
+  String get sidebarHostDown => 'Disconnected, retrying...';
 
   @override
   String get sidebarHostIdle => 'Not connected';

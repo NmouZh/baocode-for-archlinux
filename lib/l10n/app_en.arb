@@ -701,12 +701,12 @@
     "description": "A browser step's verb while it runs (see browserStepDone).",
     "placeholders": {"action": {"type": "String"}}
   },
-  "sessionStepDone": "{action, select, new{Started} send{Handed work to} wait{Waited for} read{Read} stop{Stopped} changes{Checked the changes of} list{Listed the conversations} other{Coordinated}}",
+  "sessionStepDone": "{action, select, new{Started} send{Handed work to} wait{Waited for} read{Read} stop{Stopped} changes{Checked the changes of} list{Listed the conversations} models{Checked the models} other{Coordinated}}",
   "@sessionStepDone": {
     "description": "A coordinating step's verb once done, by the session tool it called; the conversation's title follows.",
     "placeholders": {"action": {"type": "String"}}
   },
-  "sessionStepRunning": "{action, select, new{Starting} send{Handing work to} wait{Waiting for} read{Reading} stop{Stopping} changes{Checking the changes of} list{Listing the conversations} other{Coordinating}}",
+  "sessionStepRunning": "{action, select, new{Starting} send{Handing work to} wait{Waiting for} read{Reading} stop{Stopping} changes{Checking the changes of} list{Listing the conversations} models{Checking the models} other{Coordinating}}",
   "@sessionStepRunning": {
     "description": "A coordinating step's verb while it runs (see sessionStepDone).",
     "placeholders": {"action": {"type": "String"}}
@@ -1610,6 +1610,10 @@
   "@turnCopy": {
     "description": "Hint of the button at the end of a finished turn that copies its answer."
   },
+  "turnFork": "Fork from here",
+  "@turnFork": {
+    "description": "Hint of the button at the end of a finished turn that copies the conversation up to there into a new one."
+  },
   "turnCopied": "Copied",
   "turnSpeed": "{speed} tok/s",
   "@turnSpeed": {
@@ -1725,6 +1729,18 @@
     "description": "Shown in an earlier conversation while it is read, e.g. from a remote project's host."
   },
   "activityCompacting": "Compacting conversation",
+  "noticeCompacted": "Conversation compacted",
+  "noticeCompactedAuto": "Conversation compacted automatically",
+  "noticeCompactedTooLong": "Conversation compacted early: the provider refused it as too long for the model",
+  "@noticeCompactedTooLong": {
+    "description": "The divider of a compaction forced by the API refusing the request as longer than the model's context, before the context set was full."
+  },
+  "noticeCompactedTooLongWindow": "Conversation compacted early: the provider refused it as too long for the model, which takes less than the {window} context set",
+  "@noticeCompactedTooLongWindow": {"placeholders": {"window": {"type": "String"}}},
+  "noticeCompactedTokens": "{tokens} tokens",
+  "@noticeCompactedTokens": {"placeholders": {"tokens": {"type": "String"}}},
+  "noticeCompactedFromTo": "{before} → {after} tokens",
+  "@noticeCompactedFromTo": {"placeholders": {"before": {"type": "String"}, "after": {"type": "String"}}},
   "activityPlanning": "Planning next move",
   "activityMusings": "Pondering\nNoodling\nPercolating\nCogitating\nSimmering\nMarinating\nTinkering\nGrokking\nMulling it over\nConnecting the dots\nChasing a hunch\nBrewing a plan\nHatching a plan\nWeighing the options\nUntangling threads\nHerding tokens\nSummoning context\nAsking the rubber duck\nReading the tea leaves\nSketching on a napkin\nDoodling in the margins\nSquinting at the diff\nCounting parentheses\nBefriending the compiler\nNegotiating with types\nWrangling edge cases\nTracing the stack\nFlipping through the docs\nSpelunking the codebase\nLining up the ducks\nShaking the magic 8-ball\nWarming up the neurons\nFolding thoughts\nBinding the monad\nAsking the oracle\nStirring the pot\nPolishing the plan",
   "@activityMusings": {
@@ -3480,6 +3496,50 @@
   },
   "langRunning": "{id} is running",
   "@langRunning": {
+    "placeholders": {
+      "id": {
+        "type": "String"
+      }
+    }
+  },
+  "langError": "{id} reported an error",
+  "@langError": {
+    "placeholders": {
+      "id": {
+        "type": "String"
+      }
+    }
+  },
+  "langWarning": "{id} reported a warning",
+  "@langWarning": {
+    "placeholders": {
+      "id": {
+        "type": "String"
+      }
+    }
+  },
+  "langClickForDetails": "Click for log and settings",
+  "langViewLog": "View Log",
+  "langOpenLspSettings": "Open LSP Settings",
+  "langServerLogLabel": "LSP Log",
+  "langNoLogOutput": "No log output from {id} yet.",
+  "@langNoLogOutput": {
+    "placeholders": {
+      "id": {
+        "type": "String"
+      }
+    }
+  },
+  "langServerInitializing": "{id} is still initializing (click the status bar for details)",
+  "@langServerInitializing": {
+    "placeholders": {
+      "id": {
+        "type": "String"
+      }
+    }
+  },
+  "langServerImportError": "{id} failed to load the project (click the status bar for details)",
+  "@langServerImportError": {
     "placeholders": {
       "id": {
         "type": "String"
@@ -5623,7 +5683,7 @@
     }
   },
   "appearanceSettingsMinimap": "Conversation Minimap",
-  "appearanceSettingsMinimapDescription": "A minimap of the whole conversation at the left of its column, where you are in it shown as you scroll; click or drag it to get somewhere. It stands in for the scrollbar, and is not shown in a window too narrow for it. Off: the scrollbar.",
+  "appearanceSettingsMinimapDescription": "A minimap of the whole conversation beside its column, where you are in it shown as you scroll; click or drag it to get somewhere. It stands in for the scrollbar, and is not shown in a window too narrow for it. Off: the scrollbar.",
   "appearanceSettingsWindowBlur": "Native Window Blur",
   "appearanceSettingsWindowBlurDescription": "The system's blur under the windows (macOS's sidebar material, Windows 11's acrylic): what is behind them shows through the sidebar and the conversation. Off: the windows are opaque.",
   "appearanceSettingsSidebarTimes": "Times in the Sidebar",
@@ -5652,6 +5712,18 @@
   "minimapElasticitySubtle": "Subtle",
   "minimapElasticityMedium": "Medium",
   "minimapElasticityBouncy": "Bouncy",
+  "appearanceSettingsMinimapSide": "Minimap Position",
+  "appearanceSettingsMinimapSideDescription": "Which side of the conversation's column the minimap is on. At the right it takes the scrollbar's place, below the side panel's buttons.",
+  "appearanceSettingsMinimapSideLabel": "Minimap position: {side}",
+  "@appearanceSettingsMinimapSideLabel": {
+    "placeholders": {
+      "side": {
+        "type": "String"
+      }
+    }
+  },
+  "minimapSideLeft": "Left",
+  "minimapSideRight": "Right",
   "appearanceSettingsCodeFont": "Code Font",
   "appearanceSettingsCodeFontDescription": "The font code is drawn in: in the editor, the terminal, the chat and the previews. Family names in order, separated by commas, or a preset.",
   "appearanceSettingsCodeFontDefault": "Default",
@@ -5758,6 +5830,14 @@
       }
     }
   },
+  "remoteConnectionLost": "The connection to {host} is lost, and being tried again by itself. What you send waits until it is back",
+  "@remoteConnectionLost": {
+    "placeholders": {
+      "host": {
+        "type": "String"
+      }
+    }
+  },
   "remoteRetry": "Retry",
   "remoteSignInTitle": "Sign in to {host}",
   "@remoteSignInTitle": {
@@ -5843,6 +5923,18 @@
   },
   "remoteStatusFailed": "{kind}: {host} (disconnected)",
   "@remoteStatusFailed": {
+    "placeholders": {
+      "kind": {
+        "type": "String",
+        "description": "How the host is reached: SSH, or WSL for a WSL distribution."
+      },
+      "host": {
+        "type": "String"
+      }
+    }
+  },
+  "remoteStatusDown": "{kind}: {host} (disconnected, retrying...)",
+  "@remoteStatusDown": {
     "placeholders": {
       "kind": {
         "type": "String",
@@ -6539,6 +6631,7 @@
   "sidebarHostConnected": "Connected",
   "sidebarHostConnecting": "Connecting...",
   "sidebarHostDisconnected": "Disconnected",
+  "sidebarHostDown": "Disconnected, retrying...",
   "sidebarHostIdle": "Not connected",
   "sidebarDisconnectHost": "Disconnect",
   "sidebarRemoveHost": "Remove Host",

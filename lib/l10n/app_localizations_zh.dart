@@ -1604,6 +1604,7 @@ class AppLocalizationsZh extends AppLocalizations {
       'stop': '停下了',
       'changes': '查看了改动',
       'list': '列出了对话',
+      'models': '看了可用模型',
       'other': '统筹了',
     });
     return '$_temp0';
@@ -1619,6 +1620,7 @@ class AppLocalizationsZh extends AppLocalizations {
       'stop': '正在停下',
       'changes': '正在查看改动',
       'list': '正在列出对话',
+      'models': '正在看可用模型',
       'other': '正在统筹',
     });
     return '$_temp0';
@@ -2640,6 +2642,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get turnCopy => '复制回复';
 
   @override
+  String get turnFork => '从这里 Fork';
+
+  @override
   String get turnCopied => '已复制';
 
   @override
@@ -2752,6 +2757,30 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get activityCompacting => '正在压缩对话';
+
+  @override
+  String get noticeCompacted => '对话已压缩';
+
+  @override
+  String get noticeCompactedAuto => '对话已自动压缩';
+
+  @override
+  String get noticeCompactedTooLong => '对话已提前压缩：服务商以超出模型上下文为由拒绝了请求';
+
+  @override
+  String noticeCompactedTooLongWindow(String window) {
+    return '对话已提前压缩：服务商以超出模型上下文为由拒绝了请求，模型实际能用的比设定的 $window 小';
+  }
+
+  @override
+  String noticeCompactedTokens(String tokens) {
+    return '$tokens token';
+  }
+
+  @override
+  String noticeCompactedFromTo(String before, String after) {
+    return '$before → $after token';
+  }
 
   @override
   String get activityPlanning => '正在规划下一步';
@@ -4633,6 +4662,43 @@ class AppLocalizationsZh extends AppLocalizations {
   @override
   String langRunning(String id) {
     return '$id 正在运行';
+  }
+
+  @override
+  String langError(String id) {
+    return '$id 发生错误';
+  }
+
+  @override
+  String langWarning(String id) {
+    return '$id 发出警告';
+  }
+
+  @override
+  String get langClickForDetails => '单击查看日志和设置';
+
+  @override
+  String get langViewLog => '查看日志';
+
+  @override
+  String get langOpenLspSettings => '打开 LSP 设置';
+
+  @override
+  String get langServerLogLabel => 'LSP 日志';
+
+  @override
+  String langNoLogOutput(String id) {
+    return '$id 暂无日志输出。';
+  }
+
+  @override
+  String langServerInitializing(String id) {
+    return '$id 正在初始化（点击状态栏查看详情）';
+  }
+
+  @override
+  String langServerImportError(String id) {
+    return '$id 项目加载失败（点击状态栏查看详情）';
   }
 
   @override
@@ -7438,7 +7504,7 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get appearanceSettingsMinimapDescription =>
-      '在对话左侧显示整段对话的缩略图，滚动时显示当前所在位置，点击或拖动即可跳转。开启时代替右侧滚动条；窗口太窄时不显示。关闭后恢复右侧滚动条。';
+      '在对话旁显示整段对话的缩略图，滚动时显示当前所在位置，点击或拖动即可跳转。开启时代替右侧滚动条；窗口太窄时不显示。关闭后恢复右侧滚动条。';
 
   @override
   String get appearanceSettingsWindowBlur => '原生高斯模糊';
@@ -7489,6 +7555,24 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get minimapElasticityBouncy => 'Q 弹';
+
+  @override
+  String get appearanceSettingsMinimapSide => '缩略图位置';
+
+  @override
+  String get appearanceSettingsMinimapSideDescription =>
+      '缩略图放在对话的左侧还是右侧。放在右侧时占用滚动条的位置，在侧边面板按钮的下方。';
+
+  @override
+  String appearanceSettingsMinimapSideLabel(String side) {
+    return '缩略图位置：$side';
+  }
+
+  @override
+  String get minimapSideLeft => '左侧';
+
+  @override
+  String get minimapSideRight => '右侧';
 
   @override
   String get appearanceSettingsCodeFont => '代码字体';
@@ -7647,6 +7731,11 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
+  String remoteConnectionLost(String host) {
+    return '与 $host 的连接已断开，正在自动重试。发出的消息会等连上后再处理';
+  }
+
+  @override
   String get remoteRetry => '重试';
 
   @override
@@ -7710,6 +7799,11 @@ class AppLocalizationsZh extends AppLocalizations {
   @override
   String remoteStatusFailed(String kind, String host) {
     return '$kind: $host（已断开）';
+  }
+
+  @override
+  String remoteStatusDown(String kind, String host) {
+    return '$kind: $host（已断开，正在重试...）';
   }
 
   @override
@@ -8440,6 +8534,9 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get sidebarHostDisconnected => '已断开';
+
+  @override
+  String get sidebarHostDown => '已断开，正在重试...';
 
   @override
   String get sidebarHostIdle => '未连接';
