@@ -3,7 +3,6 @@ import 'dart:math' as math;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart' show RenderProxyBox;
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 
@@ -170,35 +169,95 @@ class _AgentSidePanelAreaState extends State<AgentSidePanelArea> {
   bool _dragging = false;
   ({double x, double width})? _dragStart;
 
-  /// Whether it is over the conversations: once the room was short for
-  /// longer than [overlayDelay]. Short a while only (the window's sidebar
-  /// giving way to it, which takes its animation; a window opening), it
-  /// stays beside them, narrower, not covering the window for a moment.
+  /// Whether it is over the conversations: asked for while the room is
+  /// short for it beside them, once short for longer than [overlayDelay].
+  /// Short a while only (the window's sidebar giving way to it, which takes
+  /// its animation; a window opening), it stays beside them, narrower, not
+  /// covering the window for a moment.
   bool _overlay = false;
 
-  /// Runs while the room is short: over them once it ends.
+  /// Whether it gave way to the conversations: shown beside them, the room
+  /// went short (the window or the pane made narrower, a window opening
+  /// narrow), and it was not asked for since. Out of their way, as hidden,
+  /// until the room is back (beside them again) or it is asked for (over
+  /// them). See [AgentSidePanel.gaveWay].
+  bool _gaveWay = false;
+
+  /// Whether it was asked for since the room went short: over the
+  /// conversations then, not out of their way.
+  bool _askedShort = false;
+
+  /// [AgentSidePanel.asks] (its pane's) as last seen.
+  late int _asksSeen = _asks;
+
+  int get _asks => switch (widget.conversation) {
+    final conversation? => _panel.asksIn(conversation),
+    null => _panel.asks,
+  };
+
+  /// Runs while the room is short: settled once it ends.
   Timer? _short;
 
   /// Runs a while from when it was built: a window opening gets its size
   /// meanwhile.
   Timer? _young;
 
+  /// [short]: whether it is wanted, and the room short for it beside the
+  /// conversations.
   void _roomShort(bool short) {
+    final asks = _asks;
+    final asked = asks != _asksSeen;
+    _asksSeen = asks;
     if (!short) {
       _short?.cancel();
       _short = null;
       _overlay = false;
+      _askedShort = false;
+      _setGaveWay(false);
       return;
     }
-    if (_overlay || _short != null) return;
-    // Short for good: over them at once, not beside them for a moment.
-    if (!widget.roomComing && _young == null) {
-      _overlay = true;
+    if (asked) _askedShort = true;
+    if (_overlay) return;
+    if (_gaveWay) {
+      // Asked for again: over them, as asked.
+      if (_askedShort) {
+        _setGaveWay(false);
+        _overlay = true;
+      }
       return;
     }
+    if (_short != null) return;
+    // Short for good: settled at once, not beside them for a moment.
+    if (!widget.roomComing && _young == null) return _settle();
     _short = Timer(AgentSidePanelArea.overlayDelay, () {
       _short = null;
-      if (mounted) setState(() => _overlay = true);
+      if (mounted) setState(_settle);
+    });
+  }
+
+  /// The room short for good: over the conversations where it was asked
+  /// for meanwhile, else out of their way.
+  void _settle() {
+    if (_askedShort) {
+      _overlay = true;
+    } else {
+      _setGaveWay(true);
+    }
+  }
+
+  void _setGaveWay(bool gaveWay) {
+    if (gaveWay == _gaveWay) return;
+    _gaveWay = gaveWay;
+    _tellGaveWay();
+  }
+
+  /// [_gaveWay] to the panel, for its toggles: after the frame, as it is
+  /// laid out.
+  void _tellGaveWay() {
+    final panel = _panel;
+    final conversation = widget.conversation;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      panel.setGaveWay(conversation, mounted && _gaveWay);
     });
   }
 
@@ -210,15 +269,15 @@ class _AgentSidePanelAreaState extends State<AgentSidePanelArea> {
 
   @override
   void dispose() {
+    if (_gaveWay) _tellGaveWay();
     _short?.cancel();
     _young?.cancel();
-    _railRect.dispose();
+    _rail.dispose();
     super.dispose();
   }
 
-  /// Where the rail is on screen, as last painted (see
-  /// [ChatColumnInset.rail]).
-  final ValueNotifier<Rect?> _railRect = ValueNotifier(null);
+  /// The rail, for what is under it (see [ChatColumnInset.rail]).
+  final ChatRail _rail = ChatRail();
 
   AgentSidePanel get _panel => widget.panel;
 
@@ -257,13 +316,14 @@ class _AgentSidePanelAreaState extends State<AgentSidePanelArea> {
     builder: (context, _) => LayoutBuilder(
       builder: (context, constraints) {
         final room = constraints.maxWidth;
-        final shown = _shownHere && !widget.hidden;
-        // Over the conversations only where it cannot be beside them at
-        // its least; else beside them, narrower than it would be where
-        // they need the room.
+        final wanted = _shownHere && !widget.hidden;
+        // Where it cannot be beside the conversations at its least, out of
+        // their way, or over them as asked for; else beside them, narrower
+        // than it would be where they need the room.
         _roomShort(
-          shown && room - AgentSidePanel.minWidth < AgentSidePanelArea.minChat,
+          wanted && room - AgentSidePanel.minWidth < AgentSidePanelArea.minChat,
         );
+        final shown = wanted && !_gaveWay;
         final overlay = _overlay;
         final atLeft = _panel.atLeft;
         final beside = shown && !overlay;
@@ -288,7 +348,7 @@ class _AgentSidePanelAreaState extends State<AgentSidePanelArea> {
               child: ChatColumnInset(
                 right: rail && !atLeft ? AgentSidePanelArea.railInset : 0,
                 left: rail && atLeft ? AgentSidePanelArea.railInset : 0,
-                rail: rail ? _railRect : null,
+                rail: rail ? _rail : null,
                 child: widget.child,
               ),
             ),
@@ -298,7 +358,7 @@ class _AgentSidePanelAreaState extends State<AgentSidePanelArea> {
                 left: atLeft ? AgentSidePanelArea.railRight : null,
                 right: atLeft ? null : AgentSidePanelArea.railRight,
                 top: widget.railTop ?? AgentSidePanelArea.defaultRailTop,
-                child: _ReportRect(rect: _railRect, child: widget.rail!),
+                child: ChatRailReport(rail: _rail, child: widget.rail!),
               ),
             if (shown) ...[
               if (overlay)
@@ -2304,43 +2364,4 @@ class _SidePanelScmHost implements IdeScmHost {
 
   @override
   String? get activePath => null;
-}
-
-/// [child], telling [rect] where it is on screen each time it is painted
-/// somewhere else (after the frame: not while painting).
-class _ReportRect extends SingleChildRenderObjectWidget {
-  const _ReportRect({required this.rect, super.child});
-
-  final ValueNotifier<Rect?> rect;
-
-  @override
-  _RenderReportRect createRenderObject(BuildContext context) =>
-      _RenderReportRect(rect);
-
-  @override
-  void updateRenderObject(
-    BuildContext context,
-    _RenderReportRect renderObject,
-  ) {
-    renderObject.rect = rect;
-  }
-}
-
-class _RenderReportRect extends RenderProxyBox {
-  _RenderReportRect(this.rect);
-
-  ValueNotifier<Rect?> rect;
-  Rect? _told;
-
-  @override
-  void paint(PaintingContext context, Offset offset) {
-    super.paint(context, offset);
-    final at = localToGlobal(Offset.zero) & size;
-    if (at == _told) return;
-    _told = at;
-    final rect = this.rect;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (attached) rect.value = at;
-    });
-  }
 }
