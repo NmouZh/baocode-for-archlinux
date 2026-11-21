@@ -570,14 +570,11 @@ Future<String?> pacmanPackageVersion(
   String packageName,
 ) async {
   try {
-    final result = await processes.run('pacman', [
-      '-Q',
-      '--quiet',
-      packageName,
-    ]);
+    // Without `--quiet`: that prints only the package name, and the version
+    // is what tells a rebuilt package from the installed one.
+    final result = await processes.run('pacman', ['-Q', packageName]);
     if (result.exitCode != 0) return null;
-    final version = '${result.stdout}'.trim();
-    return version.isEmpty ? null : version;
+    return parsePacmanPackageVersion('${result.stdout}', packageName);
   } on ProcessException {
     return null;
   }

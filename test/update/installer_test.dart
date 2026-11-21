@@ -253,8 +253,9 @@ void main() {
     test('asks pacman the version of the package installed', () async {
       final processes = _FakeProcesses((executable, arguments) {
         expect(executable, 'pacman');
-        expect(arguments, ['-Q', '--quiet', 'baocode']);
-        return _result(0, '1.9.6.r122.g9c5d062-2\n');
+        expect(arguments, ['-Q', 'baocode']);
+        // What `pacman -Q baocode` prints: the name, then the version.
+        return _result(0, 'baocode 1.9.6.r122.g9c5d062-2\n');
       });
       expect(
         await pacmanPackageVersion(processes, 'baocode'),
@@ -264,6 +265,8 @@ void main() {
       for (final processes in [
         _FakeProcesses((_, _) => _result(1, '', 'not installed')),
         _FakeProcesses((_, _) => _result(0, '')),
+        _FakeProcesses((_, _) => _result(0, 'baocode\n')),
+        _FakeProcesses((_, _) => _result(0, 'other 1.9.6-2\n')),
       ]) {
         expect(await pacmanPackageVersion(processes, 'baocode'), isNull);
       }

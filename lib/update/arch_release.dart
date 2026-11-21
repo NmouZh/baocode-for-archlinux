@@ -356,6 +356,22 @@ String? parsePacmanOwnership(String output, String executablePath) {
   return null;
 }
 
+/// The version (`pkgver-pkgrel`) pacman has for [packageName], from the
+/// line `pacman -Q <packageName>` prints: the package's name, a space, its
+/// version. Null when [output] names another package or gives no version.
+///
+/// `--quiet` is not used: it keeps the name and drops the version.
+String? parsePacmanPackageVersion(String output, String packageName) {
+  for (final raw in output.split('\n')) {
+    final line = raw.trim();
+    if (line.isEmpty) continue;
+    final fields = line.split(RegExp(r'\s+'));
+    if (fields.length < 2 || fields.first != packageName) continue;
+    return fields[1];
+  }
+  return null;
+}
+
 /// The command that installs a downloaded Arch package with pacman behind
 /// one privilege prompt, through [pkexec] (the installer's path to it).
 List<String> pacmanInstallCommand(

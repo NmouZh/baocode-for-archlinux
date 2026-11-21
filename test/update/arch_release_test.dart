@@ -398,6 +398,39 @@ void main() {
     });
   });
 
+  group('pacman package version', () {
+    test('reads the version from pacman -Q output', () {
+      expect(
+        parsePacmanPackageVersion(
+          'baocode 1.9.6.r125.g781d72d-3\n',
+          'baocode',
+        ),
+        '1.9.6.r125.g781d72d-3',
+      );
+      expect(
+        parsePacmanPackageVersion('baocode-bin 1.9.6-3\n', 'baocode-bin'),
+        '1.9.6-3',
+      );
+    });
+
+    test('does not read a bare name as the version', () {
+      // `pacman -Q --quiet` prints just this, which is not a version.
+      expect(parsePacmanPackageVersion('baocode\n', 'baocode'), isNull);
+    });
+
+    test('reports nothing for another package or empty output', () {
+      expect(
+        parsePacmanPackageVersion('baocode-bin 1.9.6-3\n', 'baocode'),
+        isNull,
+      );
+      expect(parsePacmanPackageVersion('', 'baocode'), isNull);
+      expect(
+        parsePacmanPackageVersion('error: package not found\n', 'baocode'),
+        isNull,
+      );
+    });
+  });
+
   group('pacman install', () {
     const assetPath =
         '/home/user/.local/share/baocode/updates/1.9.5/baocode-1.9.5-1-x86_64.pkg.tar.zst';
