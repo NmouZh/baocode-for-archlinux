@@ -51,6 +51,19 @@ String antigravityToolOfCall(String name) {
 
 final _unsafeId = RegExp(r'[^a-zA-Z0-9_-]');
 
+/// Whether [type] is one of Anthropic's built-in web search tool types.
+bool isAntigravityWebSearchToolType(String type) =>
+    type == 'web_search_20250305' || type == 'web_search_20260209';
+
+/// Whether [model] runs Google Search natively on Antigravity: Gemini text
+/// models, not Claude, GPT-OSS or image-generation models.
+bool antigravitySupportsWebSearch(String model) {
+  final lower = model.toLowerCase();
+  return lower.contains('gemini') &&
+      !lower.contains('image') &&
+      !lower.contains('imagen');
+}
+
 /// An Anthropic Messages request ([body]) as Code Assist's `request`, for
 /// model [model] (the id it goes out as) at [effort]: its system prompt
 /// and turns as Gemini's, its tools' schemas cut to what Antigravity
@@ -204,29 +217,28 @@ Map<String, Object?> convertClaudeRequestToAntigravity(
   }
 
   final request = <String, Object?>{'contents': paired};
+  final systemParts = <String>[];
   final system = antigravityCloak(_systemText(body['system']));
-  if (system.isNotEmpty) {
-    request['systemInstruction'] = {
-      'role': 'user',
-      'parts': [
-        {'text': system},
-      ],
-    };
-  }
+  if (system.isNotEmpty) systemParts.add(system);
 
   final choice = body['tool_choice'] is Map ? body['tool_choice'] as Map : null;
-  final declarations = [
-    for (final tool in (body['tools'] as List?) ?? const [])
-      if (tool is Map &&
-          tool['name'] is String &&
-          tool.containsKey('input_schema'))
-        {
-          'name': antigravityFunctionName(tool['name'] as String),
-          if (tool['description'] case final String d when d.isNotEmpty)
-            'description': d,
-          'parameters': antigravitySchema(tool['input_schema']),
-        },
-  ];
+  final declarations = <Map<String, Object?>>[];
+  Map? webSearch;
+  for (final tool in (body['tools'] as List?) ?? const []) {
+    if (tool is! Map) continue;
+    if (isAntigravityWebSearchToolType('${tool['type'] ?? ''}')) {
+      webSearch ??= tool;
+      continue;
+    }
+    if (tool['name'] is String && tool.containsKey('input_schema')) {
+      declarations.add({
+        'name': antigravityFunctionName(tool['name'] as String),
+        if (tool['description'] case final String d when d.isNotEmpty)
+          'description': d,
+        'parameters': antigravitySchema(tool['input_schema']),
+      });
+    }
+  }
   if (declarations.isNotEmpty && choice?['type'] != 'none') {
     request['tools'] = [
       {'functionDeclarations': declarations},
@@ -245,6 +257,34 @@ Map<String, Object?> convertClaudeRequestToAntigravity(
         calling['mode'] = claude ? 'VALIDATED' : 'AUTO';
     }
     request['toolConfig'] = {'functionCallingConfig': calling};
+  } else if (webSearch != null &&
+      choice?['type'] != 'none' &&
+      antigravitySupportsWebSearch(model)) {
+    // Code Assist runs Google Search natively on Gemini as long as no
+    // function declarations are sent alongside it.
+    request['tools'] = [
+      {'googleSearch': <String, Object?>{}},
+    ];
+    final allowed = _domainList(webSearch['allowed_domains']);
+    if (allowed.isNotEmpty) {
+      systemParts.add(
+        'Restrict web search results to these domains: ${allowed.join(', ')}.',
+      );
+    }
+    final blocked = _domainList(webSearch['blocked_domains']);
+    if (blocked.isNotEmpty) {
+      systemParts.add(
+        'Exclude web search results from these domains: ${blocked.join(', ')}.',
+      );
+    }
+  }
+  if (systemParts.isNotEmpty) {
+    request['systemInstruction'] = {
+      'role': 'user',
+      'parts': [
+        {'text': systemParts.join('\n\n')},
+      ],
+    };
   }
 
   final generation = <String, Object?>{};
@@ -505,6 +545,12 @@ String _systemText(Object? system) => switch (system) {
   ].join('\n'),
   _ => '',
 };
+
+List<String> _domainList(Object? value) => [
+  if (value is List)
+    for (final item in value)
+      if (item is String && item.trim().isNotEmpty) item.trim(),
+];
 
 /// The text a conversation is known by over its turns: its first user
 /// text, for [antigravitySessionId]'s seed.

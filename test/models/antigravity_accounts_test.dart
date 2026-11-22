@@ -1,13 +1,18 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:baocode/models/antigravity/antigravity_accounts_io.dart';
 import 'package:baocode/models/antigravity/antigravity_api.dart';
+import 'package:baocode/models/codex/codex_accounts_io.dart';
+import 'package:baocode/models/image_api.dart';
+import 'package:baocode/models/image_generation_io.dart';
 import 'package:baocode/models/model_provider.dart';
 import 'package:baocode/models/model_providers.dart';
 import 'package:baocode/models/proxy/model_proxy.dart';
 import 'package:baocode/models/proxy/translate/antigravity_signature.dart';
 import 'package:baocode/models/secret_store.dart';
+import 'package:baocode/usage/usage_ledger.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 typedef Answer = (int status, List<String> lines);
@@ -46,9 +51,12 @@ class FakeGoogle {
   ) => requests.where((r) => r.path == path);
 
   Future<void> _handle(HttpRequest request) async {
-    final body = await utf8.decodeStream(request);
     final headers = <String, String>{};
     request.headers.forEach((name, values) => headers[name] = values.join(','));
+    final bytes = [for (final chunk in await request.toList()) ...chunk];
+    final body = utf8.decode(
+      headers['content-encoding'] == 'gzip' ? gzip.decode(bytes) : bytes,
+    );
     requests.add((path: request.uri.path, headers: headers, body: body));
     Object? json;
     try {
@@ -81,7 +89,7 @@ const _models = {
   },
 };
 
-List<String> _stream(String text) => [
+List<String> _stream(String text, {int thoughts = 0}) => [
   'data: ${jsonEncode({
     'response': {
       'responseId': 'r1',
@@ -96,7 +104,7 @@ List<String> _stream(String text) => [
           'finishReason': 'STOP',
         },
       ],
-      'usageMetadata': {'promptTokenCount': 100, 'cachedContentTokenCount': 60, 'candidatesTokenCount': 5},
+      'usageMetadata': {'promptTokenCount': 100, 'cachedContentTokenCount': 60, 'candidatesTokenCount': 5, if (thoughts > 0) 'thoughtsTokenCount': thoughts},
     },
   })}',
   '',
@@ -108,6 +116,7 @@ void main() {
   late ModelProviders providers;
   late AntigravityAccounts accounts;
   late ModelProxy proxy;
+  late UsageLedger ledger;
   const a = ProviderAccount(id: 'a@x', email: 'a@x', accountId: 'proj-a');
   const b = ProviderAccount(id: 'b@x', email: 'b@x', accountId: 'proj-b');
 
@@ -116,6 +125,7 @@ void main() {
   setUp(() async {
     HttpOverrides.global = null;
     google = await FakeGoogle.start();
+    ledger = UsageLedger(MemoryUsageStorage());
     secrets = MemorySecretStore({
       ModelProvider.accountRefFor('ag', 'a@x'): 'refresh-a',
       ModelProvider.accountRefFor('ag', 'b@x'): 'refresh-b',
@@ -143,6 +153,7 @@ void main() {
       findProxy: (_) => 'DIRECT',
       antigravity: accounts,
       signatures: MemorySignatureStore(),
+      usage: () => ledger,
       token: 'tok',
     );
   });
@@ -151,6 +162,7 @@ void main() {
     await proxy.close();
     accounts.close();
     await google.close();
+    ledger.dispose();
   });
 
   Answer common(String path, Map<String, Object?> body) => switch (path) {
@@ -181,6 +193,8 @@ void main() {
   Future<({int status, String text})> ask(
     String model, {
     String first = 'hi',
+    List<Object?>? tools,
+    bool stream = true,
   }) async {
     final endpoint = await proxy.endpoint('ag');
     final client = HttpClient();
@@ -194,7 +208,7 @@ void main() {
       request.write(
         jsonEncode({
           'model': model,
-          'stream': true,
+          'stream': stream,
           'max_tokens': 1000,
           'metadata': {
             'user_id': jsonEncode({'session_id': 'session-1'}),
@@ -203,6 +217,7 @@ void main() {
           'messages': [
             {'role': 'user', 'content': first},
           ],
+          'tools': ?tools,
         }),
       );
       final response = await request.close();
@@ -252,6 +267,51 @@ void main() {
       google.to('/v1internal:streamGenerateContent').last.body,
     ) as Map;
     expect((other['request'] as Map)['sessionId'], isNot(request['sessionId']));
+  });
+
+  test('a large request goes gzipped, a small one as it is', () async {
+    google.reply = (path, body) => switch (path) {
+      '/v1internal:streamGenerateContent' => (200, _stream('hello')),
+      _ => common(path, body),
+    };
+    await ask('gemini-4-neon(high)');
+    final small = google.to('/v1internal:streamGenerateContent').last;
+    expect(small.headers['content-encoding'], isNull);
+    final long = 'screenshot ' * 5000;
+    final answer = await ask('gemini-4-neon(high)', first: long);
+    expect(answer.status, 200);
+    final large = google.to('/v1internal:streamGenerateContent').last;
+    expect(large.headers['content-encoding'], 'gzip');
+    expect(int.parse(large.headers['content-length']!), lessThan(long.length));
+    final request = (jsonDecode(large.body) as Map)['request'] as Map;
+    expect(jsonEncode(request['contents']), contains(long.trim()));
+  });
+
+  test('kept in usage: the account, the cache and the reasoning', () async {
+    google.reply = (path, body) => switch (path) {
+      '/v1internal:streamGenerateContent' => (
+        200,
+        _stream('hello', thoughts: 20),
+      ),
+      _ => common(path, body),
+    };
+    final answer = await ask('gemini-4-neon(high)');
+    expect(answer.status, 200);
+    ledger.flush();
+    final call = (await ledger.ofSession('session-1')).single;
+    expect(call.provider, 'ag');
+    expect(call.providerName, 'Antigravity');
+    expect(call.protocol, 'antigravity');
+    expect(call.model, 'gemini-4-neon');
+    expect(call.effort, 'high');
+    expect(call.account, 'a@x');
+    // Gemini's prompt counts its cached part too.
+    expect(call.input, 40);
+    expect(call.cacheRead, 60);
+    expect(call.output, 25);
+    expect(call.reasoning, 20);
+    expect(call.status, 200);
+    expect(call.failed, isFalse);
   });
 
   test('an account out of quota on a model gives way on it alone', () async {
@@ -329,6 +389,91 @@ void main() {
     expect(body['project'], 'proj-found');
     expect(provider().account('a@x')?.accountId, 'proj-found');
     expect(provider().account('a@x')?.plan, 'Google AI Pro');
+  });
+
+  test('web search forwards googleSearch for Gemini and returns tool error for Claude', () async {
+    google.reply = (path, body) => switch (path) {
+      '/v1internal:streamGenerateContent' => (
+        200,
+        [
+          'data: ${jsonEncode({
+            'response': {
+              'candidates': [
+                {
+                  'content': {
+                    'role': 'model',
+                    'parts': [
+                      {'text': 'Found Dart 4.'},
+                    ],
+                  },
+                  'finishReason': 'STOP',
+                  'groundingMetadata': {
+                    'webSearchQueries': ['Dart 4'],
+                    'groundingChunks': [
+                      {
+                        'web': {'uri': 'https://dart.dev', 'title': 'Dart'},
+                      },
+                    ],
+                  },
+                },
+              ],
+              'usageMetadata': {'promptTokenCount': 20, 'candidatesTokenCount': 10},
+            },
+          })}\n\n',
+        ],
+      ),
+      _ => common(path, body),
+    };
+    const webSearchTools = [
+      {'type': 'web_search_20250305', 'name': 'web_search', 'max_uses': 8},
+    ];
+    final gemini = await ask(
+      'gemini-4-neon(high)',
+      first: 'Search for: Dart 4',
+      tools: webSearchTools,
+    );
+    expect(gemini.status, 200);
+    expect(gemini.text, contains('"type":"web_search_tool_result"'));
+    expect(gemini.text, contains('https://dart.dev'));
+    final sent = jsonDecode(
+      google.to('/v1internal:streamGenerateContent').single.body,
+    ) as Map;
+    expect((sent['request'] as Map)['tools'], [
+      {'googleSearch': <String, Object?>{}},
+    ]);
+
+    // Unsupported Antigravity model: HTTP 200 with web_search_tool_result_error,
+    // no upstream call and no API error.
+    final claudeStream = await ask(
+      'claude-opus-5-5(high)',
+      first: 'Search for: Dart 4',
+      tools: webSearchTools,
+    );
+    expect(claudeStream.status, 200);
+    expect(claudeStream.text, isNot(contains('event: error')));
+    expect(
+      claudeStream.text,
+      contains('"type":"web_search_tool_result_error"'),
+    );
+    expect(
+      claudeStream.text,
+      contains(
+        'Web search is not supported for claude-opus-5-5 on Antigravity.',
+      ),
+    );
+    final claudeJson = await ask(
+      'claude-opus-5-5(high)',
+      first: 'Search for: Dart 4',
+      tools: webSearchTools,
+      stream: false,
+    );
+    expect(claudeJson.status, 200);
+    final decoded = jsonDecode(claudeJson.text) as Map;
+    final blocks = decoded['content'] as List;
+    expect((blocks[1] as Map)['type'], 'web_search_tool_result');
+    expect(((blocks[1] as Map)['content'] as Map)['error_code'], 'unavailable');
+    // Upstream was never called for Claude's web search.
+    expect(google.to('/v1internal:streamGenerateContent'), hasLength(1));
   });
 
   test(
@@ -427,6 +572,81 @@ void main() {
         'gemini-4-neon': ['low', 'high'],
         'claude-opus-5-5-high': <String>[],
       },
+    );
+  });
+
+  test('image generation: image_gen envelope, rotates on 429', () async {
+    final png = Uint8List.fromList([0x89, 0x50, 0x4E, 0x47, 1, 2, 3, 4]);
+    var streamCalls = 0;
+    google.reply = (path, body) {
+      if (path != '/v1internal:streamGenerateContent') {
+        return common(path, body);
+      }
+      streamCalls++;
+      if (streamCalls == 1) {
+        return (
+          429,
+          [
+            jsonEncode({
+              'error': {
+                'message':
+                    'You have exhausted your capacity on this model. '
+                    'Your quota will reset after 1h.',
+              },
+            }),
+          ],
+        );
+      }
+      return (
+        200,
+        [
+          'data: ${jsonEncode({
+            'response': {
+              'candidates': [
+                {
+                  'content': {
+                    'parts': [
+                      {
+                        'inlineData': {'mimeType': 'image/png', 'data': base64Encode(png)},
+                      },
+                    ],
+                  },
+                },
+              ],
+            },
+          })}',
+          '',
+        ],
+      );
+    };
+    final codex = CodexAccounts(providers: () => providers);
+    addTearDown(codex.close);
+    final generator = ImageGenerator(
+      codex: codex,
+      antigravity: accounts,
+      key: (_) async => null,
+    );
+    final images = await generator.generate(
+      provider(),
+      const ProviderModel(id: 'gemini-3.1-flash-image'),
+      const ImageRequest(prompt: 'A red fox', aspectRatio: '16:9', count: 2),
+      session: 's-img',
+    );
+    expect(images, hasLength(2));
+    expect(images.first.bytes, png);
+    expect(images.last.bytes, png);
+    // First call hit 429 on a@x, second and third ran on b@x.
+    final sent = google.to('/v1internal:streamGenerateContent').toList();
+    expect(sent, hasLength(3));
+    final first = jsonDecode(sent.first.body) as Map;
+    expect(first['requestType'], 'image_gen');
+    expect(first['requestId'], startsWith('image_gen/'));
+    expect(first['model'], 'gemini-3.1-flash-image');
+    expect(first['project'], 'proj-a');
+    expect((jsonDecode(sent[1].body) as Map)['project'], 'proj-b');
+    expect(
+      accounts.limitedFor('ag', 'a@x', 'gemini-3.1-flash-image'),
+      isNotNull,
     );
   });
 }

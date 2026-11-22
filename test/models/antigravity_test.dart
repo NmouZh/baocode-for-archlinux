@@ -45,7 +45,7 @@ void main() {
       'gpt-oss-120b-medium': _model('GPT-OSS 120B (Medium)'),
       'chat_20706': _model('internal'),
       'tab_flash_lite_preview': _model('tab'),
-      'gemini-3.1-flash-image': _model('Gemini 3.1 Flash Image'),
+      'gemini-3.1-flash-image': _model('Gemini 3.1 Flash Image', left: 0.9),
       'gemini-4-argon-high': _model('Gemini 4 Argon', disabled: true),
     },
     'agentModelSorts': [
@@ -67,7 +67,7 @@ void main() {
       expect(ids[1], 'gemini-4-neon-high');
       expect(ids, isNot(contains('chat_20706')));
       expect(ids, isNot(contains('tab_flash_lite_preview')));
-      expect(ids, isNot(contains('gemini-3.1-flash-image')));
+      expect(ids, contains('gemini-3.1-flash-image'));
       expect(ids, isNot(contains('gemini-4-argon-high')));
       // Left out once none is left.
       expect(
@@ -90,6 +90,11 @@ void main() {
       final oss = remote.firstWhere((m) => m.id == 'gpt-oss-120b-medium');
       expect(oss.efforts, isEmpty);
       expect(oss.images, isFalse);
+      final painter = remote.firstWhere(
+        (m) => m.id == 'gemini-3.1-flash-image',
+      );
+      expect(painter.label, 'Gemini 3.1 Flash Image');
+      expect(painter.efforts, isEmpty);
     });
 
     test('a family is asked at the level nearest the effort', () {
@@ -531,6 +536,62 @@ void main() {
     test('the first user text seeds the session', () {
       expect(antigravityFirstUserText(body()), 'List files');
     });
+
+    test(
+      'web_search translates to googleSearch on Gemini without functions',
+      () {
+        final searchBody = {
+          'system': [
+            {'type': 'text', 'text': 'Search the web.'},
+          ],
+          'messages': [
+            {'role': 'user', 'content': 'Search for: Dart 4'},
+          ],
+          'tools': [
+            {
+              'type': 'web_search_20250305',
+              'name': 'web_search',
+              'allowed_domains': ['dart.dev', 'pub.dev'],
+            },
+          ],
+        };
+        expect(antigravitySupportsWebSearch('gemini-4-neon-high'), isTrue);
+        expect(antigravitySupportsWebSearch('claude-opus-5-5-high'), isFalse);
+        expect(antigravitySupportsWebSearch('gpt-oss-120b-medium'), isFalse);
+        expect(antigravitySupportsWebSearch('gemini-3.1-flash-image'), isFalse);
+
+        final request = convertClaudeRequestToAntigravity(
+          searchBody,
+          model: 'gemini-4-neon-high',
+        );
+        expect(request['tools'], [
+          {'googleSearch': <String, Object?>{}},
+        ]);
+        expect(request.containsKey('toolConfig'), isFalse);
+        expect(request['systemInstruction'], {
+          'role': 'user',
+          'parts': [
+            {
+              'text':
+                  'Search the web.\n\n'
+                  'Restrict web search results to these domains: dart.dev, pub.dev.',
+            },
+          ],
+        });
+
+        // Not sent for unsupported models or when tool_choice is none.
+        final claudeReq = convertClaudeRequestToAntigravity(
+          searchBody,
+          model: 'claude-opus-5-5-high',
+        );
+        expect(claudeReq.containsKey('tools'), isFalse);
+        final noneReq = convertClaudeRequestToAntigravity({
+          ...searchBody,
+          'tool_choice': {'type': 'none'},
+        }, model: 'gemini-4-neon-high');
+        expect(noneReq.containsKey('tools'), isFalse);
+      },
+    );
   });
 
   group('thinking', () {
@@ -736,5 +797,110 @@ void main() {
       expect(frames, contains('event: error'));
       expect(translator.finish(), isEmpty);
     });
+
+    test(
+      'groundingMetadata emits server_tool_use and web_search_tool_result',
+      () {
+        final translator = AntigravityResponseTranslator(
+          model: 'gemini-4-neon(high)',
+        );
+        final out = StringBuffer()
+          ..write(
+            translator.convert(
+              line({
+                'candidates': [
+                  {
+                    'content': {
+                      'parts': [
+                        {'text': 'Gemini 4 Neon is out.'},
+                      ],
+                    },
+                    'groundingMetadata': {
+                      'webSearchQueries': ['Gemini 4 Neon'],
+                    },
+                  },
+                ],
+              }),
+            ),
+          )
+          ..write(
+            translator.convert(
+              line({
+                'candidates': [
+                  {
+                    'content': {
+                      'parts': [
+                        {'text': ''},
+                      ],
+                    },
+                    'finishReason': 'STOP',
+                    'groundingMetadata': {
+                      'webSearchQueries': ['Gemini 4 Neon', 'Gemini 4 pricing'],
+                      'groundingChunks': [
+                        {
+                          'web': {
+                            'uri': 'https://aistudio.google.com/docs/models',
+                            'title': 'AI Studio Models',
+                          },
+                        },
+                        {
+                          'web': {
+                            'uri': 'https://aistudio.google.com/docs/models',
+                            'title': 'Duplicate',
+                          },
+                        },
+                        {
+                          'web': {
+                            'uri': 'https://aistudio.google.com/docs/pricing',
+                          },
+                        },
+                      ],
+                    },
+                  },
+                ],
+                'usageMetadata': {
+                  'promptTokenCount': 50,
+                  'candidatesTokenCount': 12,
+                },
+              }),
+            ),
+          )
+          ..write(translator.finish());
+        final events = decode(out.toString());
+        final message = antigravityMessage(translator.events)!;
+        expect(message['stop_reason'], 'end_turn');
+        expect(message['usage'], {
+          'input_tokens': 50,
+          'output_tokens': 12,
+          'server_tool_use': {'web_search_requests': 1},
+        });
+        final content = message['content'] as List;
+        expect(content.map((b) => (b as Map)['type']), [
+          'text',
+          'server_tool_use',
+          'web_search_tool_result',
+        ]);
+        final use = content[1] as Map;
+        expect(use['name'], 'web_search');
+        expect(use['input'], {'query': 'Gemini 4 Neon; Gemini 4 pricing'});
+        final result = content[2] as Map;
+        expect(result['tool_use_id'], use['id']);
+        expect(result['content'], [
+          {
+            'type': 'web_search_result',
+            'title': 'AI Studio Models',
+            'url': 'https://aistudio.google.com/docs/models',
+            'page_age': null,
+          },
+          {
+            'type': 'web_search_result',
+            'title': 'https://aistudio.google.com/docs/pricing',
+            'url': 'https://aistudio.google.com/docs/pricing',
+            'page_age': null,
+          },
+        ]);
+        expect(events.where((e) => e['type'] == 'message_stop'), hasLength(1));
+      },
+    );
   });
 }

@@ -39,6 +39,11 @@ enum ProviderProtocol {
   /// a base URL.
   bool get usesAccounts => this == codex || this == antigravity;
 
+  /// Whether an upstream may be switched to it: Antigravity no longer, as
+  /// Google's terms forbid it outside its own tools; those that speak it
+  /// already keep it.
+  bool get selectable => this != antigravity;
+
   /// Those a model may be spoken to at instead of its upstream's
   /// ([ProviderModel.protocol]): at the same base URL and key, so not
   /// Codex's, signed in to.
@@ -816,13 +821,22 @@ class ModelProvider {
   static final _sorted = Expando<List<ProviderModel>>();
   static final _enabled = Expando<List<ProviderModel>>();
   static final _labels = Expando<Map<String, String>>();
+  static final _byId = Expando<Map<String, ProviderModel>>();
+  static final _byAlias = Expando<Map<String, ProviderModel>>();
 
   /// Its model [id]; for magpie's, also one kept by its real id that a
   /// session or setting still names by its old alias ([Magpie.alias]).
+  /// Looked up for every event of a conversation, of every one replayed:
+  /// the aliases, hashed one by one, are worked out once.
   ProviderModel? model(String id) =>
-      models.where((model) => model.id == id).firstOrNull ??
+      (_byId[this] ??= {
+        for (final model in models.reversed) model.id: model,
+      })[id] ??
       (followsMagpie && Magpie.isAlias(id)
-          ? models.where((model) => Magpie.alias(model.id) == id).firstOrNull
+          ? (_byAlias[this] ??= {
+              for (final model in models.reversed)
+                Magpie.alias(model.id): model,
+            })[id]
           : null);
 
   /// How [model] is spoken to: at its own endpoint, if it has one, else
